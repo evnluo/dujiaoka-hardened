@@ -15,6 +15,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build isolated security test image
         run: docker build --target security-test -t dujiaoka-security-test .
+      - name: Verify runtime versions and extension requirements
+        run: |
+          docker run --rm --network none --entrypoint php dujiaoka-security-test tests/runtime-platform.php
+          docker run --rm --network none --entrypoint composer dujiaoka-security-test check-platform-reqs --no-dev
       - name: Run synthetic security regressions without network or production data
         run: docker run --rm --network none dujiaoka-security-test
       - name: Verify MariaDB transactions and concurrent callbacks

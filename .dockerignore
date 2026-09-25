@@ -1,5 +1,13 @@
 **
 !Dockerfile
+!composer.json
+!composer.lock
+!artisan
+!bootstrap/**
+!config/**
+!routes/**
+!database/**
+bootstrap/cache/*.php
 !app/**
 !public/**
 !resources/**

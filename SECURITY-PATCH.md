@@ -28,7 +28,7 @@ The first suite executes real controllers/services with synthetic dependencies a
 
 GitHub Actions runs both suites before publishing `ghcr.io/evnluo/dujiaoka-hardened:sha-<full-git-sha>` for amd64 and arm64. Production should pin the returned image digest, not `latest`. GHCR package visibility is configured independently of repository visibility; verify an unauthenticated pull before declaring public delivery complete.
 
-The build context admits only app/public/resources/docker/tests. No deployment `.env`, database dump, customer data, uploads, sessions or private keys belong in the repository or image.
+The build context admits application source, bootstrap/config/routes/database source, Composer manifests, Docker configuration, and synthetic tests. No deployment `.env`, database dump, customer data, uploads, sessions or private keys belong in the repository or image.
 
 ## Deployment and rollback
 
@@ -41,7 +41,7 @@ The build context admits only app/public/resources/docker/tests. No deployment `
 
 ## Known limitations
 
-- The pinned upstream base still contains legacy PHP 7.4, Laravel 6 and dependencies. This release closes specific application defects; runtime modernization remains separate work.
+- Maintenance release uses final PHP 7.4.33 and Laravel 6.20.45, both EOL. The PHP image and OS are still legacy. Only Laravel changes in the Composer lock; other dependencies are deliberately retained. The production-only Composer audit reports 42 advisories affecting 15 packages (13 high, 26 medium, 3 low). These counts do not prove exploitability on this shop, but this must not be represented as a vulnerability-free stack.
 - A callback arriving after an order is marked expired is rejected rather than reviving an order whose coupon may have been returned. Real payments in that state require operator reconciliation/refund; do not silently mark them paid.
 - Disabling a gateway or rotating its signing key while payments are in flight can reject legitimate callbacks. Keep the old configuration until in-flight payments settle; reconcile rejected paid orders with the provider and refund or fulfil manually only after independent payment verification. Never bypass callback validation.
 - Notifications are not backed by a transactional outbox. A notification failure after commit does not undo stock delivery, and an idempotent callback retry does not replay all notification side effects.
@@ -51,4 +51,4 @@ The build context admits only app/public/resources/docker/tests. No deployment `
 
 ## Provenance
 
-Application: assimon/dujiaoka. Runtime image: Apocalypsor/dujiaoka-docker, pinned in the Dockerfile. Storefront customizations: Evan's existing tracked deployment at commit `3fe4437`. Upstream licenses and attribution are retained.
+Application: assimon/dujiaoka. Runtime: official PHP 7.4.33 FPM Alpine image, pinned in the Dockerfile; original Composer executable retained from Apocalypsor/dujiaoka-docker. Storefront customizations: Evan's existing tracked deployment at commit `3fe4437`. Upstream licenses and attribution are retained.

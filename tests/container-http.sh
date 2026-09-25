@@ -9,7 +9,7 @@ docker run -d --name "$container" --network none --entrypoint sh "$image" -c '
   mkdir -p /dujiaoka/public/uploads
   printf "<?php echo \"must-not-execute\";" > /dujiaoka/public/uploads/probe.php
   printf "synthetic-hidden-file" > /dujiaoka/public/.probe
-  php-fpm7 -D
+  php-fpm -D
   exec nginx -g "daemon off;"
 ' >/dev/null
 attempt=0
