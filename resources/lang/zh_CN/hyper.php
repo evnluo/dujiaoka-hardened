@@ -40,11 +40,13 @@ return [
     'buy_input_account'         => '接收卡密或通知',
     'buy_purchase_quantity'     => '购买数量',
     'buy_in_stock'              => '库存',
+    'buy_full_stock'            => '库存充足',
+    'buy_optional'              => '（选填）',
     'buy_purchase_restrictions' => '限购',
     'buy_search_password'       => '查询密码',
     'buy_input_search_password' => '查询订单密码',
     'buy_promo_code'            => '优惠码',
-    'buy_input_promo_code'      => '您有优惠码吗？',
+    'buy_input_promo_code'      => '填写优惠码',
     'buy_choose_payment_method' => '请选择支付方式',
     'buy_behavior_verification' => '行为验证',
     'buy_verify_code'           => '验证码',
@@ -61,6 +63,8 @@ return [
     'buy_empty_payment_method'  => '未选择支付方式！',
     'buy_empty_captcha'         => '验证码不能为空！',
     'buy_correct_verification'  => '请正确完成行为验证！',
+    'buy_total'                 => '总价',
+    'buy_you_save'              => '您节省了',
 
     # bill.blade.php
 
@@ -81,6 +85,9 @@ return [
 
     'orderinfo_title'              => '订单详情',
     'orderinfo_order_title'        => '订单名称',
+    'orderinfo_order_number'       => '订单号',
+    'orderinfo_payment_info'       => '支付信息',
+    'orderinfo_commodity_price'   => '商品单价',
     'orderinfo_number_of_orders'   => '下单数量',
     'orderinfo_order_time'         => '下单时间',
     'orderinfo_email'              => '邮箱',

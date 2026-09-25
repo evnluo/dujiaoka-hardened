@@ -204,7 +204,7 @@ if (! function_exists('signquery_string')) {
     }
 }
 
-if (!function_exists('picture_ulr')) {
+if (!function_exists('picture_url')) {
 
     /**
      * 生成前台图片链接 不存在使用默认图
@@ -212,7 +212,7 @@ if (!function_exists('picture_ulr')) {
      * @param false $getHost 是否只获取图片前缀域名
      * @return \Illuminate\Contracts\Foundation\Application|\Illuminate\Contracts\Routing\UrlGenerator|string
      */
-    function picture_ulr($file, $getHost = false)
+    function picture_url($file, $getHost = false)
     {
         if ($getHost) return Storage::disk('admin')->url('');
         return $file ? Storage::disk('admin')->url($file) : url('assets/common/images/default.jpg');

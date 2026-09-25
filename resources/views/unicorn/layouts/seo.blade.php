@@ -17,9 +17,11 @@
         <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
     @endif
     <link rel="stylesheet" href="/assets/unicorn/css/bootstrap.min.css">
-    <link rel="stylesheet" href="/assets/unicorn/css/base.css">
+    <link rel="stylesheet" href="/assets/unicorn/css/main-1.css">
     <link rel="stylesheet" href="/assets/unicorn/css/common.css">
     <link rel="stylesheet" href="/assets/unicorn/css/index.css">
+    <link rel="stylesheet" href="/assets/unicorn/css/fonts.css">
+    <script src="https://assets.ohevan.com/projects/tailwind-playcdn/3.4-typography.js"></script>
 </head>
 @include('unicorn.layouts._nav')
 @yield('content')

@@ -81,7 +81,7 @@
         <a href="<<# if(d.in_stock > 0){ >>/buy/<< d.id >><<#  } else { >>javascript:void(0);<<# }; >>"
            class="goods-box" style="<<# if(d.in_stock <= 0){ >>cursor:not-allowed;<<# }; >>">
             <<# if(d.picture){ >>
-            <div class="picture"><img src="{{ picture_ulr('',true) }}<< d.picture >>" alt=""></div>
+            <div class="picture"><img src="{{ picture_url('',true) }}<< d.picture >>" alt=""></div>
             <<# }; >>
             <div class="msg">
                 <div class="goods-name"><< d.gd_name >></div>

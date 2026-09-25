@@ -28,8 +28,8 @@
                     <div class="layui-col-md4 layui-col-sm12">
                         <div class="goods-img">
                             <img class="viewer-pictures"
-                                 src="{{ picture_ulr($picture) }}"
-                                 data-original="{{ picture_ulr($picture) }}"
+                                 src="{{ picture_url($picture) }}"
+                                 data-original="{{ picture_url($picture) }}"
                                  alt="">
                         </div>
                     </div>

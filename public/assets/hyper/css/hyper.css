@@ -201,10 +201,6 @@ body[data-layout=topnav] .content-page {
         max-width: 80px;
         margin-right: 12px;
     }
-    .flex {
-        display: flex;
-        flex-direction: column;
-    }
     .name {
         font-size: 14px;
         min-height: 42px;
@@ -241,11 +237,6 @@ body[data-layout=topnav] .content-page {
     .home-img {
         max-width: 88%;
         margin: 0 auto auto auto;
-    }
-    .flex {
-        display: flex;
-        flex-direction: column;
-        margin-top: 12px;
     }
     .name {
         font-size: 16px;
@@ -285,11 +276,6 @@ body[data-layout=topnav] .content-page {
         max-width: 88%;
         margin: 0 auto auto auto;
     }
-    .flex {
-        display: flex;
-        flex-direction: column;
-        margin-top: 12px;
-    }
     .name {
         font-size: 16px;
         min-height: 42px;
@@ -327,11 +313,6 @@ body[data-layout=topnav] .content-page {
         max-width: 88%;
         margin: 0 auto auto auto;
     }
-    .flex {
-        display: flex;
-        flex-direction: column;
-        margin-top: 12px;
-    }
     .name {
         font-size: 16px;
         min-height: 42px;
@@ -350,10 +331,6 @@ body[data-layout=topnav] .content-page {
 }
 
 /* Buy Page*/
-.form-group h3 {
-    font-weight: 400;
-    color: #212529;
-}
 .geetest_holder.geetest_wind {
     width: 100% !important;
     min-width: 100% !important;

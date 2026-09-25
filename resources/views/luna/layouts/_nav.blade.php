@@ -4,7 +4,7 @@
         <div class="layui-col-md8 layui-col-md-offset2 layui-col-sm12">
             <div class="header-box">
                 <a href="/">
-                    <img src="{{ picture_ulr(dujiaoka_config_get('img_logo')) }}" alt="">
+                    <img src="{{ picture_url(dujiaoka_config_get('img_logo')) }}" alt="">
                     <div class="info">{{ dujiaoka_config_get('text_logo') }}</div>
                 </a>
                 <div class="query layui-hide-xs">

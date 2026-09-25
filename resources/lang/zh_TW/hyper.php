@@ -40,11 +40,13 @@ return [
     'buy_input_account'         => '接收卡密或通知',
     'buy_purchase_quantity'     => '購買數量',
     'buy_in_stock'              => '庫存',
+    'buy_full_stock'            => '庫存充足',
+    'buy_optional'              => '（選填）',
     'buy_purchase_restrictions' => '限購',
     'buy_search_password'       => '查詢密碼',
     'buy_input_search_password' => '查詢訂單密碼',
     'buy_promo_code'            => '折扣碼',
-    'buy_input_promo_code'      => '您有折扣碼嗎？',
+    'buy_input_promo_code'      => '填寫折扣碼',
     'buy_choose_payment_method' => '請選取支付方式',
     'buy_behavior_verification' => '行為驗證',
     'buy_verify_code'           => '驗證碼',
@@ -61,6 +63,7 @@ return [
     'buy_empty_payment_method'  => '未選取支付方式！',
     'buy_empty_captcha'         => '驗證碼不能為空！',
     'buy_correct_verification'  => '請正確完成行為驗證！',
+    'buy_total'                 => '總價',
 
     # bill.blade.php
 
@@ -81,6 +84,9 @@ return [
 
     'orderinfo_title'              => '訂單詳情',
     'orderinfo_order_title'        => '訂單名稱',
+    'orderinfo_order_number'       => '訂單號',
+    'orderinfo_payment_info'       => '支付信息',
+    'orderinfo_commodity_price'    => '商品單價',    
     'orderinfo_number_of_orders'   => '下單數量',
     'orderinfo_order_time'         => '下單時間',
     'orderinfo_email'              => '信箱',

@@ -63,8 +63,14 @@ $(function() {
 		localStorage.setItem("announcement",setTime);
 	}
 	// 版权
-	console.group("Faka");console.log("Name: 独角数卡");console.log("Github: https://github.com/assimon/dujiaoka");console.groupEnd();
-	console.group("Theme");console.log("Name: Hyper Theme");console.log("Author: Bimoes");console.groupEnd();
+	console.group("Based on");
+	console.log("Faka: 独角数卡");console.log("Github: https://github.com/assimon/dujiaoka");
+	console.log("Original Theme: Hyper Theme");console.log("Author: Bimoes");
+	console.groupEnd();
+	console.group("UI");
+	console.log("Made with ❤️ by Evan");
+	console.log("https://github.com/evannotfound");
+	console.groupEnd();
 });
 // 图片懒加载
 $(function () {

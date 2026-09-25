@@ -10,6 +10,14 @@
     <link rel="shortcut icon" href="/favicon.ico">
     <link href="/assets/hyper/css/vendor/jquery-jvectormap-1.2.2.css" rel="stylesheet" type="text/css">
     <link href="/assets/hyper/css/icons.min.css" rel="stylesheet" type="text/css">
-    <link href="/assets/hyper/css/app-creative.min.css" rel="stylesheet" type="text/css" id="light-style">
-    <link href="/assets/hyper/css/hyper.css?v=045256" rel="stylesheet" type="text/css">
+    <link href="/assets/hyper/css/app-creative.min.css?v=111614" rel="stylesheet" type="text/css" id="light-style">
+    <link href="/assets/hyper/css/hyper.css?v=111614" rel="stylesheet" type="text/css">
+    <link rel="stylesheet" href="/assets/hyper/css/fonts.css?v=111614">
+    <link rel="stylesheet" href="https://assets.ohevan.com/lib/toastify/toastify.min.css">
+    <script src="https://assets.ohevan.com/projects/tailwind-playcdn/3.4-typography.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
 </head>

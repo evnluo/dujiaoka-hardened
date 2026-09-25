@@ -9,7 +9,7 @@
                         <div class="card mt-3">
                             <div class="row no-gutters">
                                 <div class="col-md-4">
-                                    <img src="{{ picture_ulr($picture) }}"
+                                    <img src="{{ picture_url($picture) }}"
                                          class="card-img-top p-5" alt="{{ $gd_name }}">
                                     @if($type == \App\Models\Goods::AUTOMATIC_DELIVERY)
                                         <h6><small class="badge bg-success  position-absolute top-0 start-0">

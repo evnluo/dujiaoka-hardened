@@ -1,0 +1,53 @@
+<?php
+
+return [
+    // Global
+    'global_title' => 'Digital Goods Shop',
+    'global_search' => 'Search',
+    'global_search_placeholder' => 'Enter keywords to search...',
+    'global_search_notfound' => 'No results found',
+    'global_currency' => '$',
+    
+    // Navigation
+    'nav_home' => 'Home',
+    'nav_shop' => 'Shop',
+    'nav_categories' => 'Categories',
+    'nav_faq' => 'FAQ',
+    'nav_contact' => 'Contact',
+    'nav_orders' => 'My Orders',
+    'nav_language' => 'Language',
+    
+    // Buy page
+    'buy_automatic_delivery' => 'Automatic Delivery',
+    'buy_charge' => 'Manual Processing',
+    'buy_full_stock' => 'Full Stock',
+    'buy_in_stock' => 'In Stock',
+    'buy_purchase_restrictions' => 'Limit',
+    'buy_purchase' => 'Buy',
+    'buy_the_above' => 'or more',
+    'buy_each' => 'each',
+    'buy_email' => 'Email',
+    'buy_input_account' => 'Enter your email to receive product',
+    'buy_purchase_quantity' => 'Quantity',
+    'buy_search_password' => 'Query Password',
+    'buy_input_search_password' => 'Set a password to query your order',
+    'buy_promo_code' => 'Promo Code',
+    'buy_optional' => '(Optional)',
+    'buy_input_promo_code' => 'Enter promo code if you have one',
+    'buy_behavior_verification' => 'Verification',
+    'buy_verify_code' => 'Verification Code',
+    'buy_payment_method' => 'Payment Method',
+    'buy_order_now' => 'Place Order Now',
+    'buy_total' => 'Total',
+    'buy_product_desciption' => 'Product Description',
+    'buy_purchase_tips' => 'Purchase Tips',
+    'buy_warning' => 'Warning',
+    'buy_empty_mailbox' => 'Email cannot be empty',
+    'buy_zero_quantity' => 'Quantity cannot be zero',
+    'buy_exceeds_stock' => 'Quantity exceeds available stock',
+    'buy_exceeds_limit' => 'Quantity exceeds purchase limit',
+    'buy_empty_query_password' => 'Query password cannot be empty',
+    'buy_empty_captcha' => 'Verification code cannot be empty',
+    'buy_correct_verification' => 'Please complete verification',
+    'buy_you_save' => 'You save',
+];
