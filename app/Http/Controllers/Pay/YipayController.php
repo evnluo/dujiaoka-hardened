@@ -3,6 +3,7 @@ namespace App\Http\Controllers\Pay;
 
 use App\Exceptions\RuleValidationException;
 use App\Http\Controllers\PayController;
+use App\Models\BaseModel;
 use Illuminate\Http\Request;
 
 class YipayController extends PayController
@@ -59,15 +60,33 @@ class YipayController extends PayController
     public function notifyUrl(Request $request)
     {
         $data = $request->all();
+        if (!$this->hasValidCallbackShape($data)) {
+            return 'fail';
+        }
         $order = $this->orderService->detailOrderSN($data['out_trade_no']);
         if (!$order) {
+            return 'fail';
+        }
+        if (!hash_equals((string) $order->order_sn, $data['name'])) {
             return 'fail';
         }
         $payGateway = $this->payService->detail($order->pay_id);
         if (!$payGateway) {
             return 'fail';
         }
-        if($payGateway->pay_handleroute != '/pay/yipay'){
+        if (
+            $payGateway->pay_handleroute !== '/pay/yipay'
+            || (int) $payGateway->is_open !== BaseModel::STATUS_OPEN
+        ) {
+            return 'fail';
+        }
+        if (!isset($data['pid']) || !is_string($data['pid']) || !hash_equals((string) $payGateway->merchant_id, $data['pid'])) {
+            return 'fail';
+        }
+        if (!isset($data['type']) || !is_string($data['type']) || !hash_equals((string) $payGateway->pay_check, $data['type'])) {
+            return 'fail';
+        }
+        if (!isset($data['trade_status']) || $data['trade_status'] !== 'TRADE_SUCCESS') {
             return 'fail';
         }
         ksort($data); //重新排序$data数组
@@ -82,14 +101,62 @@ class YipayController extends PayController
                 $sign .= "$key=$val"; //拼接为url参数形式
             }
         }
-        if (!$data['trade_no'] || md5($sign . $payGateway->merchant_pem) != $data['sign']) { //不合法的数据
+        $expectedSign = md5($sign . $payGateway->merchant_pem);
+        if (
+            !isset($data['trade_no'], $data['sign'])
+            || !is_string($data['trade_no'])
+            || $data['trade_no'] === ''
+            || !is_string($data['sign'])
+            || !preg_match('/\A[0-9a-fA-F]{32}\z/D', $data['sign'])
+            || !hash_equals($expectedSign, strtolower($data['sign']))
+        ) { //不合法的数据
             return 'fail';  //返回失败 继续补单
         } else {
             //合法的数据
             //业务处理
-            $this->orderProcessService->completedOrder($data['out_trade_no'], $data['money'], $data['trade_no']);
+            try {
+                $this->orderProcessService->completedOrder($data['out_trade_no'], (float) $data['money'], $data['trade_no']);
+            } catch (RuleValidationException $exception) {
+                return 'fail';
+            }
             return 'success';
         }
+    }
+
+    private function hasValidCallbackShape(array $data): bool
+    {
+        $requiredFields = [
+            'pid',
+            'trade_no',
+            'out_trade_no',
+            'type',
+            'name',
+            'money',
+            'trade_status',
+            'sign',
+            'sign_type',
+        ];
+        foreach ($requiredFields as $field) {
+            if (!array_key_exists($field, $data) || !is_string($data[$field]) || $data[$field] === '') {
+                return false;
+            }
+        }
+        foreach ($data as $key => $value) {
+            if (!is_string($key) || !is_string($value)) {
+                return false;
+            }
+        }
+        if (
+            strlen($data['out_trade_no']) > 150
+            || strlen($data['name']) > 150
+            || strlen($data['trade_no']) > 200
+            || preg_match('/[\x00-\x1F\x7F]/', $data['out_trade_no'] . $data['name'] . $data['trade_no'])
+            || !preg_match('/\A\d{1,8}(?:\.\d{1,2})?\z/D', $data['money'])
+            || strcasecmp($data['sign_type'], 'MD5') !== 0
+        ) {
+            return false;
+        }
+        return true;
     }
 
     public function returnUrl(Request $request)

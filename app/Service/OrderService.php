@@ -216,6 +216,21 @@ class OrderService
     }
 
     /**
+     * 在当前事务中查询并锁定订单，防止支付通知并发重复发货。
+     *
+     * @param string $orderSN
+     * @return Order|null
+     */
+    public function detailOrderSNForUpdate(string $orderSN):? Order
+    {
+        return Order::query()
+            ->with(['coupon', 'pay', 'goods'])
+            ->where('order_sn', $orderSN)
+            ->lockForUpdate()
+            ->first();
+    }
+
+    /**
      * 根据订单号过期订单.
      *
      * @param string $orderSN
@@ -227,7 +242,10 @@ class OrderService
      */
     public function expiredOrderSN(string $orderSN): bool
     {
-        return Order::query()->where('order_sn', $orderSN)->update(['status' => Order::STATUS_EXPIRED]);
+        return Order::query()
+            ->where('order_sn', $orderSN)
+            ->where('status', Order::STATUS_WAIT_PAY)
+            ->update(['status' => Order::STATUS_EXPIRED]);
     }
 
     /**

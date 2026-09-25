@@ -1,20 +1,18 @@
-version: "2.2"
+# Existing installation with database/Redis configured in the mounted .env.
+# Create the files/directories first; do not mount application source over the image.
 services:
   web:
-    build: .
-    container_name: dujiaoka
+    build:
+      context: .
+      target: runtime
+    image: ghcr.io/evnluo/dujiaoka-hardened:${IMAGE_TAG:?Set IMAGE_TAG to the published sha tag}
     ports:
-      - "80:80"
-      - "9000:9000"
+      - "127.0.0.1:8080:80"
     volumes:
-      # 增加此行，则将环境信息进行复制到容器，请确保你存在该文件
-      - ${DATA_DIR}/dujiaoka/.env:/app/.env
-      # 增加此行，避免每次重新创建容器都需要初始化
-      - ${DATA_DIR}/dujiaoka/install.lock:/app/install.lock
-      # 增加此行，确保将上传的资源映射出来，避免容器重新创建后图片不在了
-      - ${DATA_DIR}/dujiaoka/public/uploads:/app/public/uploads
+      - ${DATA_DIR:?Set DATA_DIR}/dujiaoka/.env:/dujiaoka/.env:ro
+      - ${DATA_DIR:?Set DATA_DIR}/dujiaoka/install.lock:/dujiaoka/install.lock
+      - ${DATA_DIR:?Set DATA_DIR}/dujiaoka/public/uploads:/dujiaoka/public/uploads
+      - ${DATA_DIR:?Set DATA_DIR}/dujiaoka/storage:/dujiaoka/storage
     environment:
-      WEB_DOCUMENT_ROOT: "/app/public"
       TZ: Asia/Shanghai
-    tty: true
-    restart: always
+    restart: unless-stopped

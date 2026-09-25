@@ -1,0 +1,11 @@
+**
+!Dockerfile
+!app/**
+!public/**
+!resources/**
+!docker/**
+!tests/**
+public/uploads
+public/storage
+**/.env*
+**/*.log

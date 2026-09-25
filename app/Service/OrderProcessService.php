@@ -9,6 +9,7 @@
 
 namespace App\Service;
 
+use App\Events\OrderUpdated;
 use App\Exceptions\RuleValidationException;
 use App\Jobs\ApiHook;
 use App\Jobs\MailSend;
@@ -384,15 +385,37 @@ class OrderProcessService
      */
     public function completedOrder(string $orderSN, float $actualPrice, string $tradeNo = '')
     {
+        if (DB::transactionLevel() !== 0) {
+            throw new RuleValidationException('Order fulfilment cannot run inside an existing database transaction.');
+        }
+
+        $transactionCommitted = false;
+        $deferredDispatches = [];
         DB::beginTransaction();
         try {
-            // 得到订单详情
-            $order = $this->orderService->detailOrderSN($orderSN);
+            // 在事务中锁定订单，串行化同一订单的并发支付通知。
+            $order = $this->orderService->detailOrderSNForUpdate($orderSN);
             if (!$order) {
                 throw new \Exception(__('dujiaoka.prompt.order_does_not_exist'));
             }
-            // 订单已经处理
-            if ($order->status == Order::STATUS_COMPLETED) {
+            // 已支付状态的重复通知只有在金额和第三方订单号完全一致时才幂等确认。
+            if ((int) $order->status !== Order::STATUS_WAIT_PAY) {
+                $paidStatuses = [
+                    Order::STATUS_PENDING,
+                    Order::STATUS_PROCESSING,
+                    Order::STATUS_COMPLETED,
+                    Order::STATUS_FAILURE,
+                    Order::STATUS_ABNORMAL,
+                ];
+                if (
+                    in_array((int) $order->status, $paidStatuses, true)
+                    && bccomp($order->actual_price, $actualPrice, 2) === 0
+                    && $tradeNo !== ''
+                    && hash_equals((string) $order->trade_no, $tradeNo)
+                ) {
+                    DB::commit();
+                    return $order;
+                }
                 throw new \Exception(__('dujiaoka.prompt.order_status_completed'));
             }
             $bccomp = bccomp($order->actual_price, $actualPrice, 2);
@@ -405,13 +428,15 @@ class OrderProcessService
             // 区分订单类型
             // 自动发货
             if ($order->type == Order::AUTOMATIC_DELIVERY) {
-                $completedOrder = $this->processAuto($order);
+                $completedOrder = $this->processAutoInTransaction($order, $deferredDispatches);
             } else {
-                $completedOrder = $this->processManual($order);
+                $completedOrder = $this->processManualInTransaction($order, $deferredDispatches);
             }
             // 销量加上
             $this->goodsService->salesVolumeIncr($order->goods_id, $order->buy_amount);
             DB::commit();
+            $transactionCommitted = true;
+            $this->dispatchDeferred($deferredDispatches);
             // 如果开启了server酱
             if (dujiaoka_config_get('is_open_server_jiang', 0) == BaseModel::STATUS_OPEN) {
                 ServerJiang::dispatch($order);
@@ -431,9 +456,11 @@ class OrderProcessService
             // 回调事件
             ApiHook::dispatch($order);
             return $completedOrder;
-        } catch (\Exception $exception) {
-            DB::rollBack();
-            throw new RuleValidationException($exception->getMessage());
+        } catch (\Throwable $exception) {
+            if (!$transactionCommitted) {
+                DB::rollBack();
+            }
+            throw new RuleValidationException($exception->getMessage(), 400, $exception);
         }
     }
 
@@ -449,10 +476,22 @@ class OrderProcessService
      */
     public function processManual(Order $order)
     {
+        return $this->processManualInTransaction($order);
+    }
+
+    /**
+     * Persist a manual order while optionally deferring its external side effects.
+     *
+     * @param Order $order
+     * @param array|null $deferredDispatches
+     * @return Order
+     */
+    private function processManualInTransaction(Order $order, ?array &$deferredDispatches = null)
+    {
         // 设置订单为待处理
         $order->status = Order::STATUS_PENDING;
         // 保存订单
-        $order->save();
+        $this->saveOrder($order, $deferredDispatches);
         // 商品库存减去
         $this->goodsService->inStockDecr($order->goods_id, $order->buy_amount);
         // 邮件数据
@@ -472,7 +511,12 @@ class OrderProcessService
         $mailBody = replace_mail_tpl($tpl, $mailData);
         $manageMail = dujiaoka_config_get('manage_email', '');
         // 邮件发送
-        MailSend::dispatch($manageMail, $mailBody['tpl_name'], $mailBody['tpl_content']);
+        $this->dispatchMail(
+            $manageMail,
+            $mailBody['tpl_name'],
+            $mailBody['tpl_content'],
+            $deferredDispatches
+        );
         return $order;
     }
 
@@ -488,20 +532,32 @@ class OrderProcessService
      */
     public function processAuto(Order $order): Order
     {
+        return $this->processAutoInTransaction($order);
+    }
+
+    /**
+     * Persist an automatic order while optionally deferring its external side effects.
+     *
+     * @param Order $order
+     * @param array|null $deferredDispatches
+     * @return Order
+     */
+    private function processAutoInTransaction(Order $order, ?array &$deferredDispatches = null): Order
+    {
         // 获得卡密
         $carmis = $this->carmisService->withGoodsByAmountAndStatusUnsold($order->goods_id, $order->buy_amount);
         // 实际可使用的库存已经少于购买数量了
         if (count($carmis) != $order->buy_amount) {
             $order->info = __('dujiaoka.prompt.order_carmis_insufficient_quantity_available');
             $order->status = Order::STATUS_ABNORMAL;
-            $order->save();
+            $this->saveOrder($order, $deferredDispatches);
             return $order;
         }
         $carmisInfo = array_column($carmis, 'carmi');
         $ids = array_column($carmis, 'id');
         $order->info = implode(PHP_EOL, $carmisInfo);
         $order->status = Order::STATUS_COMPLETED;
-        $order->save();
+        $this->saveOrder($order, $deferredDispatches);
         // 将卡密设置为已售出
         $this->carmisService->soldByIDS($ids);
         // 邮件数据
@@ -519,8 +575,76 @@ class OrderProcessService
         $tpl = $this->emailtplService->detailByToken('card_send_user_email');
         $mailBody = replace_mail_tpl($tpl, $mailData);
         // 邮件发送
-        MailSend::dispatch($order->email, $mailBody['tpl_name'], $mailBody['tpl_content']);
+        $this->dispatchMail(
+            $order->email,
+            $mailBody['tpl_name'],
+            $mailBody['tpl_content'],
+            $deferredDispatches
+        );
         return $order;
+    }
+
+    /**
+     * Save without publishing the model event until the owning transaction commits.
+     *
+     * A null collection preserves the public processAuto/processManual behavior for
+     * direct callers that do not run through completedOrder.
+     */
+    private function saveOrder(Order $order, ?array &$deferredDispatches = null): void
+    {
+        if ($deferredDispatches === null) {
+            $order->save();
+            return;
+        }
+
+        Order::withoutEvents(function () use ($order): void {
+            $order->save();
+        });
+        $deferredDispatches[] = [
+            'type' => 'order_updated',
+            'order' => $order,
+        ];
+    }
+
+    /**
+     * Dispatch mail immediately for direct callers or collect an immutable payload
+     * for completedOrder to submit after commit.
+     */
+    private function dispatchMail(
+        string $to,
+        string $title,
+        string $content,
+        ?array &$deferredDispatches = null
+    ): void {
+        if ($deferredDispatches === null) {
+            MailSend::dispatch($to, $title, $content);
+            return;
+        }
+
+        $deferredDispatches[] = [
+            'type' => 'mail',
+            'to' => $to,
+            'title' => $title,
+            'content' => $content,
+        ];
+    }
+
+    /**
+     * Publish locally collected side effects only after the database commit succeeds.
+     */
+    private function dispatchDeferred(array $deferredDispatches): void
+    {
+        foreach ($deferredDispatches as $dispatch) {
+            if ($dispatch['type'] === 'order_updated') {
+                $eventDispatcher = Order::getEventDispatcher();
+                if ($eventDispatcher) {
+                    $eventDispatcher->dispatch(new OrderUpdated($dispatch['order']));
+                }
+                continue;
+            }
+
+            MailSend::dispatch($dispatch['to'], $dispatch['title'], $dispatch['content']);
+        }
     }
 
 }

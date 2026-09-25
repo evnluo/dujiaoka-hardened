@@ -1,0 +1,53 @@
+name: Test and publish image
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated security test image
+        run: docker build --target security-test -t dujiaoka-security-test .
+      - name: Run synthetic security regressions without network or production data
+        run: docker run --rm --network none dujiaoka-security-test
+      - name: Verify MariaDB transactions and concurrent callbacks
+        run: sh tests/run-database.sh dujiaoka-security-test
+      - name: Verify Nginx and PHP access boundaries
+        run: sh tests/container-http.sh dujiaoka-security-test
+      - name: Verify inherited entrypoint and storage initialization
+        run: sh tests/container-entrypoint.sh dujiaoka-security-test
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          target: final
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VCS_REF=${{ github.sha }}
+          tags: ghcr.io/evnluo/dujiaoka-hardened:sha-${{ github.sha }}
+      - name: Record immutable image reference
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: printf '%s\n' "ghcr.io/evnluo/dujiaoka-hardened@$DIGEST" >> "$GITHUB_STEP_SUMMARY"

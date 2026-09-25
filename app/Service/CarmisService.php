@@ -31,6 +31,8 @@ class CarmisService
         $carmis = Carmis::query()
             ->where('goods_id', $goodsID)
             ->where('status', Carmis::STATUS_UNSOLD)
+            ->orderBy('id')
+            ->lockForUpdate()
             ->take($byAmount)
             ->get();
         return $carmis ? $carmis->toArray() : null;

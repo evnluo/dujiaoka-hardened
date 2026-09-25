@@ -53,10 +53,14 @@ class OrderExpired implements ShouldQueue
     public function handle()
     {
         // 如果x分钟后还没支付就算过期
-        $order = app('Service\OrderService')->detailOrderSN($this->orderSN);
-        if ($order && $order->status == Order::STATUS_WAIT_PAY) {
-            app('Service\OrderService')->expiredOrderSN($this->orderSN);
-            // 回退优惠券
+        $orderService = app('Service\OrderService');
+        $order = $orderService->detailOrderSN($this->orderSN);
+        if (
+            $order
+            && $order->status == Order::STATUS_WAIT_PAY
+            && $orderService->expiredOrderSN($this->orderSN)
+        ) {
+            // 只有成功将待支付订单改为过期后才回退优惠券，避免覆盖并发支付。
             CouponBack::dispatch($order);
         }
     }
