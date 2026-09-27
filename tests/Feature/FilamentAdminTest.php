@@ -165,6 +165,12 @@ class FilamentAdminTest extends TestCase
         $this->assertSame('无交易凭证', OrderState::payment(4, ''));
     }
 
+    public function test_redis_cache_prefix_retains_the_legacy_key_separator(): void
+    {
+        $this->assertStringEndsWith(':', config('cache.prefix'));
+        $this->assertStringNotContainsString('::', config('cache.prefix'));
+    }
+
     public function test_zero_total_manual_orders_can_be_fulfilled_without_fabricated_payment_evidence(): void
     {
         Event::fake();

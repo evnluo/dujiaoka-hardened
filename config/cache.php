@@ -98,6 +98,8 @@ return [
     |
     */
 
-    'prefix' => env('CACHE_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_cache'),
+    // Laravel 6 appended ':' inside RedisStore; modern Laravel uses this prefix verbatim.
+    // Keep the existing key namespace for sessions and the explicit legacy settings import.
+    'prefix' => rtrim(env('CACHE_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_cache'), ':').':',
 
 ];
