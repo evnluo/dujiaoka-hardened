@@ -59,7 +59,7 @@ class OrderResource extends ShopResource
                     ->description(fn (Order $record) => (OrderState::TYPES[(int) $record->type] ?? '未知').' · '.$record->buy_amount.' 件'),
                 TextColumn::make('email')->label('客户邮箱')->searchable()->copyable()->limit(32)->tooltip(fn (Order $record) => $record->email),
                 TextColumn::make('actual_price')->label('订单金额')->numeric(decimalPlaces: 2)->sortable()->alignEnd(),
-                TextColumn::make('payment')->label('支付记录')->state(fn (Order $record) => OrderState::payment((int) $record->status, $record->trade_no))
+                TextColumn::make('payment')->label('支付记录')->state(fn (Order $record) => OrderState::payment((int) $record->status, $record->trade_no, $record->actual_price))
                     ->description(fn (Order $record) => $record->pay?->pay_name ?? '未选渠道')
                     ->color(fn (Order $record) => in_array((int) $record->status, [1, -1], true) || blank($record->trade_no) ? 'gray' : 'success'),
                 TextColumn::make('status')->label('交付')->badge()->sortable()
@@ -100,7 +100,7 @@ class OrderResource extends ShopResource
                 TextEntry::make('deleted_at')->label('历史归档时间')->dateTime('Y-m-d H:i')->placeholder('未归档'),
             ]),
             Section::make('支付与金额')->description('支付记录与交付状态独立展示；处理失败不代表退款，缺少交易号不视作支付凭证。')->columns(4)->schema([
-                TextEntry::make('payment')->label('支付记录')->state(fn (Order $record) => OrderState::payment((int) $record->status, $record->trade_no)),
+                TextEntry::make('payment')->label('支付记录')->state(fn (Order $record) => OrderState::payment((int) $record->status, $record->trade_no, $record->actual_price)),
                 TextEntry::make('pay.pay_name')->label('渠道')->placeholder('未选渠道'),
                 TextEntry::make('trade_no')->label('渠道交易号')->placeholder('未记录')->copyable()->columnSpan(2),
                 TextEntry::make('goods_price')->label('商品单价')->numeric(decimalPlaces: 2),

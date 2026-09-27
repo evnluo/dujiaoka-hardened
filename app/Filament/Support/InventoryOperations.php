@@ -40,8 +40,9 @@ final class InventoryOperations
             }
             $added = 0;
             foreach (array_chunk($cards, 200) as $chunk) {
+                // Current read: an enclosing repeatable-read transaction may have an older snapshot.
                 // Include sold and archived stock: neither may be accidentally resold.
-                $existing = Carmis::withTrashed()->where('goods_id', $goodsId)->whereIn('carmi', $chunk)->pluck('carmi')->all();
+                $existing = Carmis::withTrashed()->where('goods_id', $goodsId)->whereIn('carmi', $chunk)->lockForUpdate()->pluck('carmi')->all();
                 $rows = [];
                 foreach (array_diff($chunk, $existing) as $card) {
                     $rows[] = ['goods_id' => $goodsId, 'carmi' => $card, 'status' => Carmis::STATUS_UNSOLD, 'is_loop' => $isLoop ? 1 : 0, 'created_at' => now(), 'updated_at' => now()];
@@ -76,14 +77,18 @@ final class InventoryOperations
     public static function update(int $id, array $data): Carmis
     {
         AdminAccess::authorize();
+        // Resolve the product before opening a repeatable-read transaction.
+        $goodsId = Carmis::query()->findOrFail($id, ['id', 'goods_id'])->goods_id;
 
-        return DB::transaction(function () use ($id, $data): Carmis {
-            $card = Carmis::query()->lockForUpdate()->findOrFail($id);
+        return DB::transaction(function () use ($id, $goodsId, $data): Carmis {
+            // Imports and replacements take the same product lock before any card lock.
+            Goods::withTrashed()->lockForUpdate()->findOrFail($goodsId);
+            $card = Carmis::query()->where('goods_id', $goodsId)->lockForUpdate()->findOrFail($id);
             if ((int) $card->status !== Carmis::STATUS_UNSOLD || (int) $card->is_loop === 1) {
                 throw ValidationException::withMessages(['carmi' => '已售出或循环卡密不可修改。']);
             }
             if (filled($data['carmi'] ?? null)) {
-                if (Carmis::withTrashed()->where('goods_id', $card->goods_id)->where('carmi', $data['carmi'])->whereKeyNot($card->id)->exists()) {
+                if (Carmis::withTrashed()->where('goods_id', $card->goods_id)->where('carmi', $data['carmi'])->whereKeyNot($card->id)->lockForUpdate()->first(['id'])) {
                     throw ValidationException::withMessages(['carmi' => '该商品已有此卡密（包括已售出及归档记录）。']);
                 }
                 $card->carmi = $data['carmi'];

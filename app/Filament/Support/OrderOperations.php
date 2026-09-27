@@ -15,7 +15,7 @@ final class OrderOperations
 
         return DB::transaction(function () use ($id, $target, $message): Order {
             $order = Order::query()->lockForUpdate()->findOrFail($id);
-            if (! OrderState::canFulfil((int) $order->status, (int) $order->type) || blank($order->trade_no)) {
+            if (! OrderState::canFulfil((int) $order->status, (int) $order->type) || (blank($order->trade_no) && ! OrderState::isZeroTotal($order->actual_price))) {
                 throw ValidationException::withMessages(['message' => '订单状态已变化，或没有支付交易凭证。刷新后再处理；此处不能确认支付。']);
             }
             if (! in_array($target, [3, 4, 5], true) || ($target === 3 && (int) $order->status !== 2)) {

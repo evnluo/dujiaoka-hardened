@@ -134,6 +134,21 @@ class FilamentAdminTest extends TestCase
         $this->assertFalse(OrderResource::canEdit($order));
     }
 
+    public function test_order_secrets_are_excluded_after_livewire_hydration_and_inherited_calls(): void
+    {
+        $order = $this->order(['info' => 'SYNTHETIC-DELIVERY-SECRET', 'search_pwd' => 'SYNTHETIC-LOOKUP-SECRET']);
+        foreach (['getRecord', 'getBaseRecord', 'getWidgetData'] as $method) {
+            $page = Livewire::test(ViewOrder::class, ['record' => $order->id])->call($method)->assertOk();
+            $payload = json_encode([$page->effects, $page->snapshot], JSON_THROW_ON_ERROR);
+            $this->assertStringNotContainsString('SYNTHETIC-DELIVERY-SECRET', $payload, $method);
+            $this->assertStringNotContainsString('SYNTHETIC-LOOKUP-SECRET', $payload, $method);
+        }
+        $page = Livewire::test(ViewOrder::class, ['record' => $order->id])->call('refreshFormData', ['info', 'search_pwd'])->assertOk();
+        $payload = json_encode([$page->effects, $page->snapshot], JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString('SYNTHETIC-DELIVERY-SECRET', $payload);
+        $this->assertStringNotContainsString('SYNTHETIC-LOOKUP-SECRET', $payload);
+    }
+
     public function test_manual_fulfilment_cannot_mark_unpaid_or_automatic_orders_as_paid(): void
     {
         Event::fake();
@@ -148,6 +163,21 @@ class FilamentAdminTest extends TestCase
         $this->assertSame(4, (int) $paid->fresh()->status);
         $this->assertSame('verified-trade', $paid->fresh()->trade_no);
         $this->assertSame('无交易凭证', OrderState::payment(4, ''));
+    }
+
+    public function test_zero_total_manual_orders_can_be_fulfilled_without_fabricated_payment_evidence(): void
+    {
+        Event::fake();
+        $free = $this->order(['status' => 2, 'type' => 2, 'trade_no' => '', 'actual_price' => 0]);
+        Livewire::test(ViewOrder::class, ['record' => $free->id])->assertActionVisible('processing')->assertActionVisible('complete');
+        OrderOperations::fulfil($free->id, 3);
+        OrderOperations::fulfil($free->id, 4, 'Free purchase delivered');
+        $this->assertSame(4, (int) $free->fresh()->status);
+        $this->assertSame('', $free->fresh()->trade_no);
+        $this->assertSame('无需支付', OrderState::payment(4, '', '0.00'));
+        foreach (['0.01', '0.001', '-1', '', null] as $amount) {
+            $this->assertFalse(OrderState::isZeroTotal($amount));
+        }
     }
 
     public function test_goods_can_be_created_through_the_form(): void
