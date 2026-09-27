@@ -58,12 +58,12 @@ class OrderService
     public function validatorCreateOrder(Request $request): void
     {
         $validator = Validator::make($request->all(), [
-            'gid' => 'required' ,
+            'gid' => ['required', 'integer', 'min:1'],
             'email' => ['required', 'email'],
-            'payway' => ['required', 'integer'],
-            'search_pwd' => [new SearchPwd()],
+            'payway' => ['required', 'integer', \Illuminate\Validation\Rule::exists('pays', 'id')->where('is_open', 1)->where('pay_handleroute', '/pay/yipay')->whereNull('deleted_at')],
+            'search_pwd' => [\Illuminate\Validation\Rule::requiredIf((bool) dujiaoka_config_get('is_open_search_pwd', false)), 'nullable', 'string', new SearchPwd()],
             'by_amount' => ['required', 'integer', 'min:1'],
-            'img_verify_code' => [new VerifyImg()],
+            'img_verify_code' => [\Illuminate\Validation\Rule::requiredIf((bool) dujiaoka_config_get('is_open_img_code', false)), 'nullable', 'string', new VerifyImg()],
         ], [
             'by_amount.required' =>  __('dujiaoka.prompt.buy_amount_format_error'),
             'by_amount.integer' =>  __('dujiaoka.prompt.buy_amount_format_error'),
@@ -81,9 +81,7 @@ class OrderService
         if (
             dujiaoka_config_get('is_open_geetest') == BaseModel::STATUS_OPEN
             &&
-            !Validator::make($request->all(),
-                ['geetest_challenge' => 'geetest',],
-                [ 'geetest' => __('dujiaoka.prompt.geetest_validate_fail')])
+!app(\App\Support\GeetestCaptcha::class)->validate($request)
 
         ) {
             throw new RuleValidationException(__('dujiaoka.prompt.geetest_validate_fail'));

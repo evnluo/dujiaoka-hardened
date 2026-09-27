@@ -78,7 +78,7 @@ class OrderController extends BaseController
             // ip地址
             $this->orderProcessService->setBuyIP($request->getClientIp());
             // 查询密码
-            $this->orderProcessService->setSearchPwd($request->input('search_pwd', ''));
+            $this->orderProcessService->setSearchPwd((string) $request->input('search_pwd', ''));
             // 创建订单
             $order = $this->orderProcessService->createOrder();
             DB::commit();

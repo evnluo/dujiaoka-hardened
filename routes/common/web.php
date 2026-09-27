@@ -34,10 +34,5 @@ Route::group(['middleware' => ['dujiaoka.boot'],'namespace' => 'Home'], function
     Route::post('search-order-by-browser', 'OrderController@searchOrderByBrowser');
 });
 
-Route::group(['middleware' => ['install.check'],'namespace' => 'Home'], function () {
-    // 安装
-    Route::get('install', 'HomeController@install');
-    // 执行安装
-    Route::post('do-install', 'HomeController@doInstall');
-});
+// Installation is an offline operator task, never an HTTP endpoint.
 

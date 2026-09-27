@@ -1,6 +1,6 @@
 # Payment-verification patch and container delivery
 
-This fork preserves the Oknice storefront customizations and patches the legacy Dujiaoka Yipay callback and fulfilment path. It is **not a complete security audit or a supported-PHP upgrade**.
+This fork preserves the Oknice storefront customizations and patches the legacy Dujiaoka Yipay callback and fulfilment path. The Filament refactor upgrades the runtime to PHP 8.5 and Laravel 13, replaces Dcat administration, and preserves the hardened payment path. This is not a claim that the entire application is vulnerability-free.
 
 ## Scope
 
@@ -19,6 +19,9 @@ The failing baseline is demonstrable in a disposable PHP 7.4.26 container: a JSO
 ```sh
 docker build --target security-test -t dujiaoka-security-test .
 docker run --rm --network none dujiaoka-security-test
+docker run --rm --network none --entrypoint php dujiaoka-security-test tests/backend.php
+docker build --target app-test -t dujiaoka-app-test .
+docker run --rm --network none dujiaoka-app-test
 sh tests/run-database.sh dujiaoka-security-test
 ```
 
@@ -26,7 +29,7 @@ The first suite executes real controllers/services with synthetic dependencies a
 
 ## Publishing
 
-GitHub Actions runs both suites before publishing `ghcr.io/evnluo/dujiaoka-hardened:sha-<full-git-sha>` for amd64 and arm64. Production should pin the returned image digest, not `latest`. GHCR package visibility is configured independently of repository visibility; verify an unauthenticated pull before declaring public delivery complete.
+GitHub Actions runs the payment, backend, Livewire/admin, MariaDB, HTTP boundary and startup suites on native amd64 and arm64 runners before publishing `ghcr.io/evnluo/dujiaoka-hardened:sha-<full-git-sha>` for amd64 and arm64. Production should pin the returned image digest, not `latest`. GHCR package visibility is configured independently of repository visibility; verify an unauthenticated pull before declaring public delivery complete.
 
 The build context admits application source, bootstrap/config/routes/database source, Composer manifests, Docker configuration, and synthetic tests. No deployment `.env`, database dump, customer data, uploads, sessions or private keys belong in the repository or image.
 
@@ -37,18 +40,19 @@ The build context admits application source, bootstrap/config/routes/database so
 3. Replace only the application image and remove the broad `/dujiaoka/app`, `/dujiaoka/public`, and `/dujiaoka/resources` source bind mounts. Those customizations are already in the image.
 4. Keep the existing database, Redis, `.env`, storage, uploads and branding-file mounts unchanged, and preserve the loopback-only port mapping.
 5. Recreate only the application service (`docker compose up -d --no-deps faka`). Verify PHP workers, storefront, effective code hashes, image revision/digest, and mount list. Do not submit synthetic payment callbacks against production.
-6. Roll back by restoring the saved Compose file and recreating only `faka`. No database schema migration is required for this patch.
+6. Before the Filament cutover, briefly place the old app in maintenance, stop its worker gracefully, and require an empty queue. Export legacy Redis settings into a protected host-local JSON backup; import explicitly with `php artisan shop:import-settings --from-json=/protected/path.json` into the existing `admin_settings` table. No schema migrations or shared cache flushes are needed. Verify settings match and admin/storefront render before reopening.
+7. Roll back by restoring the saved Compose file and recreating only `faka`; preserve Redis settings and business rows. Never restore an old database over newly accepted orders. A newly imported canonical settings row is additive; audit it before attempting a second cutover.
 
 ## Known limitations
 
-- Maintenance release uses final PHP 7.4.33 and Laravel 6.20.45, both EOL. The PHP image and OS are still legacy. Only Laravel changes in the Composer lock; other dependencies are deliberately retained. The production-only Composer audit reports 42 advisories affecting 15 packages (13 high, 26 medium, 3 low). These counts do not prove exploitability on this shop, but this must not be represented as a vulnerability-free stack.
+- Refactor lockfile resolves Laravel 13.33.0, Filament 5.9.0, and Livewire 4.4.6 on PHP 8.5.11. The production-only Composer audit returned zero known advisories and zero abandoned packages when checked for this release. This is a point-in-time dependency check, not proof of application security.
 - A callback arriving after an order is marked expired is rejected rather than reviving an order whose coupon may have been returned. Real payments in that state require operator reconciliation/refund; do not silently mark them paid.
 - Disabling a gateway or rotating its signing key while payments are in flight can reject legitimate callbacks. Keep the old configuration until in-flight payments settle; reconcile rejected paid orders with the provider and refund or fulfil manually only after independent payment verification. Never bypass callback validation.
 - Notifications are not backed by a transactional outbox. A notification failure after commit does not undo stock delivery, and an idempotent callback retry does not replay all notification side effects.
-- Only the active Yipay integration is the callback hardening scope. Other payment integrations have not been comprehensively audited.
-- Existing public order-number lookup semantics and administrative access remain unchanged.
+- Only the active Yipay integration is retained. Disabled gateway database records remain for history, but their old public routes and SDK dependencies are removed. They cannot be selected for new checkout.
+- Existing public order-number lookup semantics remain unchanged. Filament admin access requires the existing administrator role. Stored credentials/card contents are not hydrated into edit forms; sensitive downloads require password reconfirmation.
 - The application's stored amount remains the authority. These changes do not establish that older orders were legitimate or repair past compromise.
 
 ## Provenance
 
-Application: assimon/dujiaoka. Runtime: official PHP 7.4.33 FPM Alpine image, pinned in the Dockerfile; original Composer executable retained from Apocalypsor/dujiaoka-docker. Storefront customizations: Evan's existing tracked deployment at commit `3fe4437`. Upstream licenses and attribution are retained.
+Application: assimon/dujiaoka. Runtime: official PHP 8.5 FPM Alpine image and Composer/Node build stages, pinned in the Dockerfile. Storefront customizations: Evan's existing tracked deployment at commit `3fe4437`. Upstream licenses and attribution are retained.

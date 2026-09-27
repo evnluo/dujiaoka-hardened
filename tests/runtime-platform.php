@@ -1,10 +1,12 @@
 <?php
 require __DIR__.'/../vendor/autoload.php';
 $checks = [
-    'final PHP 7.4 patch' => PHP_VERSION === '7.4.33',
-    'final Laravel 6 patch' => Illuminate\Foundation\Application::VERSION === '6.20.45',
+    'PHP 8.5 runtime' => PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 5,
+    'Laravel 13 framework' => str_starts_with(Illuminate\Foundation\Application::VERSION, '13.'),
+    'Filament 5 panel builder' => str_starts_with(ltrim(Composer\InstalledVersions::getPrettyVersion('filament/filament'), 'v'), '5.'),
+    'Dcat removed' => !Composer\InstalledVersions::isInstalled('dcat/laravel-admin') && !Composer\InstalledVersions::isInstalled('dcat-x/laravel-admin'),
 ];
-foreach (['pdo_mysql','mysqli','bcmath','mbstring','gd','intl','zip','pcntl','redis','igbinary'] as $extension) {
+foreach (['pdo_mysql','bcmath','mbstring','gd','intl','zip','pcntl','redis'] as $extension) {
     $checks['extension '.$extension] = extension_loaded($extension);
 }
 $failed=0;

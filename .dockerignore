@@ -2,6 +2,10 @@
 !Dockerfile
 !composer.json
 !composer.lock
+!phpunit.xml
+!package.json
+!pnpm-lock.yaml
+!vite.config.js
 !artisan
 !bootstrap/**
 !config/**

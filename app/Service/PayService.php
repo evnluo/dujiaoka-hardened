@@ -25,11 +25,12 @@ class PayService
      * @copyright assimon<ashang@utf8.hk>
      * @link      http://utf8.hk/
      */
-    public function pays(string $payClient = Pay::PAY_CLIENT_PC): ?array
+    public function pays(string|int $payClient = Pay::PAY_CLIENT_PC): ?array
     {
         $payGateway = Pay::query()
             ->whereIn('pay_client', [$payClient, Pay::PAY_CLIENT_ALL])
             ->where('is_open', Pay::STATUS_OPEN)
+            ->where('pay_handleroute', '/pay/yipay')
             ->get();
         return $payGateway ? $payGateway->toArray() : null;
     }
@@ -49,6 +50,7 @@ class PayService
         $gateway = Pay::query()
             ->where('pay_check', $check)
             ->where('is_open', Pay::STATUS_OPEN)
+            ->where('pay_handleroute', '/pay/yipay')
             ->first();
         return $gateway;
     }
@@ -68,6 +70,7 @@ class PayService
         $gateway = Pay::query()
             ->where('id', $id)
             ->where('is_open', Pay::STATUS_OPEN)
+            ->where('pay_handleroute', '/pay/yipay')
             ->first();
         return $gateway;
     }

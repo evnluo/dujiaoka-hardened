@@ -5,7 +5,6 @@ namespace App\Jobs;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Mail\MailServiceProvider;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Mail;
@@ -57,26 +56,26 @@ class MailSend implements ShouldQueue
     {
         $body = $this->content;
         $title = $this->title;
-        $sysConfig = cache('system-setting');
-        $mailConfig = [
-            'driver' => $sysConfig['driver'] ?? 'smtp',
-            'host' => $sysConfig['host'] ?? '',
-            'port' => $sysConfig['port'] ?? '465',
-            'username' => $sysConfig['username'] ?? '',
-            'from'      =>  [
-                'address'   =>   $sysConfig['from_address'] ?? '',
-                'name'      =>  $sysConfig['from_name'] ?? '独角发卡'
-            ],
-            'password' => $sysConfig['password'] ?? '',
-            'encryption' => $sysConfig['encryption'] ?? ''
-        ];
-        $to = $this->to;
-        //  覆盖 mail 配置
+        $settings = app(\App\Support\ShopSettings::class)->getAll();
+        $driver = $settings['driver'] ?? config('mail.default', 'smtp');
+        $smtp = config('mail.mailers.smtp');
+        foreach (['host', 'username', 'password'] as $key) {
+            $smtp[$key] = $settings[$key] ?? $smtp[$key];
+        }
+        $smtp['port'] = (int) ($settings['port'] ?? $smtp['port']);
+        if (array_key_exists('encryption', $settings)) {
+            $smtp['scheme'] = $settings['encryption'] === 'ssl' ? 'smtps' : 'smtp';
+            $smtp['require_tls'] = $settings['encryption'] === 'tls';
+        }
         config([
-            'mail'  =>  array_merge(config('mail'), $mailConfig)
+            'mail.default' => $driver,
+            'mail.mailers.smtp' => $smtp,
+            'mail.from.address' => $settings['from_address'] ?? config('mail.from.address'),
+            'mail.from.name' => $settings['from_name'] ?? config('mail.from.name'),
         ]);
-        // 重新注册驱动
-        (new MailServiceProvider(app()))->register();
+        // Queue workers must not retain a transport built with an old password.
+        Mail::purge($driver);
+        $to = $this->to;
         Mail::send(['html' => 'email.mail'], ['body' => $body], function ($message) use ($to, $title){
             $message->to($to)->subject($title);
         });

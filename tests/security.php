@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
+set_error_handler(function ($severity, $message, $file, $line): never {
+    throw new ErrorException($message, 0, $severity, $file, $line);
+});
 
-require '/dujiaoka/vendor/autoload.php';
+require __DIR__.'/../vendor/autoload.php';
 
 use App\Exceptions\RuleValidationException;
 use App\Events\OrderUpdated as OrderUpdatedEvent;
@@ -258,7 +261,7 @@ final class FakeEventDispatcher implements EventDispatcherContract
         $this->transactions = $transactions;
     }
 
-    public function listen($events, $listener)
+    public function listen($events, $listener = null)
     {
     }
 
@@ -428,11 +431,11 @@ final class RecordingMySqlConnection extends Connection
     public function __construct()
     {
         parent::__construct(null, '', '', []);
-        $this->setQueryGrammar(new MySqlGrammar());
+        $this->setQueryGrammar(new MySqlGrammar($this));
         $this->setPostProcessor(new MySqlProcessor());
     }
 
-    public function select($query, $bindings = [], $useReadPdo = true)
+    public function select($query, $bindings = [], $useReadPdo = true, array $fetchUsing = [])
     {
         $this->selectQueries[] = $query;
         if (stripos($query, 'from `orders`') !== false) {
@@ -514,7 +517,6 @@ final class TestOrderRecord extends Order
 function setPrivateProperty(object $subject, string $property, $value): void
 {
     $reflection = new ReflectionProperty(OrderProcessService::class, $property);
-    $reflection->setAccessible(true);
     $reflection->setValue($subject, $value);
 }
 
@@ -533,6 +535,10 @@ function makeOrderProcessSubject(int $status, int $type): array
     $events = new FakeEventDispatcher($transactions);
     $container->instance('db', $transactions);
     $container->instance('cache', $cache);
+    $container->instance(App\Support\ShopSettings::class, new class {
+        public function get($key, $default = null) { return $default; }
+        public function getAll(): array { return []; }
+    });
     $container->instance('config', $config);
     $container->instance('translator', $translator);
     $container->instance(Illuminate\Contracts\Bus\Dispatcher::class, $bus);

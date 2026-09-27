@@ -12,6 +12,13 @@ use App\Exceptions\AppException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
+if (! function_exists('admin_trans')) {
+    function admin_trans(string $key, array $replace = [], ?string $locale = null)
+    {
+        return trans($key, $replace, $locale);
+    }
+}
+
 if (! function_exists('replace_mail_tpl')) {
 
     /**
@@ -32,8 +39,8 @@ if (! function_exists('replace_mail_tpl')) {
         }
         if ($data) {
             foreach ($data as $key => $val) {
-                $title = str_replace('{' . $key . '}', $val, isset($title) ? $title : $mailtpl['tpl_name']);
-                $content = str_replace('{' . $key . '}', $val, isset($content) ? $content : $mailtpl['tpl_content']);
+                $title = str_replace('{' . $key . '}', (string) $val, isset($title) ? $title : $mailtpl['tpl_name']);
+                $content = str_replace('{' . $key . '}', (string) $val, isset($content) ? $content : $mailtpl['tpl_content']);
             }
             return ['tpl_name' => $title, 'tpl_content' => $content];
         }
@@ -57,8 +64,7 @@ if (! function_exists('dujiaoka_config_get')) {
      */
     function dujiaoka_config_get(string $key, $default = null)
     {
-       $sysConfig = Cache::get('system-setting');
-       return $sysConfig[$key] ?? $default;
+       return app(\App\Support\ShopSettings::class)->get($key, $default);
     }
 }
 

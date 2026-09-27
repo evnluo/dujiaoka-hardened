@@ -106,7 +106,7 @@ class GoodsService
      * @copyright assimon<ashang@utf8.hk>
      * @link      http://utf8.hk/
      */
-    public function validatorGoodsStatus(Goods $goods): Goods
+    public function validatorGoodsStatus(?Goods $goods): Goods
     {
         if (empty($goods)) {
             throw new RuleValidationException(__('dujiaoka.prompt.goods_does_not_exist'));

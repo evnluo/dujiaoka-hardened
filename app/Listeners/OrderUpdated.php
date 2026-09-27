@@ -29,7 +29,7 @@ class OrderUpdated
      */
     public function handle(OrderUpdatedEvent $event)
     {
-        $sysCache = cache('system-setting');
+        $sysCache = app(\App\Support\ShopSettings::class)->getAll();
         // 当代充商品状态，将会对顾客进行订单内容推送
         $order = [
             'created_at' => date('Y-m-d H:i'),

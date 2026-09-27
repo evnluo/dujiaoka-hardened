@@ -20,6 +20,7 @@ $app->instance('db', $db->getDatabaseManager());
 Facade::setFacadeApplication($app);
 $app['config']->set('app.url','https://shop.example.test');
 $app->instance('cache', new class { public function get($k,$default=null) {return $k==='system-setting' ? [] : $default;} });
+$app->instance(App\Support\ShopSettings::class, new class { public function get($key, $default=null) { return $default; } public function getAll(): array { return []; } });
 $app->instance('translator', new class { public function get($k,array $r=[],$locale=null,$fallback=true){return $k;} });
 // External append-only log deliberately does not participate in DB rollback.
 set_error_handler(function($severity,$message,$file,$line){throw new ErrorException($message,0,$severity,$file,$line);});

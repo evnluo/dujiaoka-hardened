@@ -12,6 +12,7 @@ if [ "${INSTALL:-false}" != true ]; then printf '%s\n' ok > install.lock; fi
 # Invalidate only local compiled artifacts, never flush shared Redis/cache keys.
 rm -f bootstrap/cache/config.php bootstrap/cache/routes*.php
 php artisan package:discover --ansi
+php artisan view:clear --no-interaction
 nginx -t
 php-fpm -t
 exec supervisord -n -c /etc/supervisord.conf
