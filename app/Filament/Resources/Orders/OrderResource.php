@@ -10,6 +10,7 @@ use Filament\Actions\ActionGroup;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Schemas\Components\Group;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
@@ -87,28 +88,38 @@ class OrderResource extends ShopResource
     public static function infolist(Schema $schema): Schema
     {
         return $schema->columns(1)->components([
-            Section::make('订单与交付')->columns(4)->schema([
-                TextEntry::make('order_sn')->label('订单号')->copyable(),
-                TextEntry::make('status')->label('交付状态')->badge()->formatStateUsing(fn ($state) => OrderState::delivery((int) $state))->color(fn ($state) => OrderState::color((int) $state)),
-                TextEntry::make('type')->label('交付方式')->formatStateUsing(fn ($state) => OrderState::TYPES[(int) $state] ?? '未知'),
-                TextEntry::make('created_at')->label('下单时间')->dateTime('Y-m-d H:i:s'),
-                TextEntry::make('title')->label('订单商品')->columnSpan(2),
-                TextEntry::make('buy_amount')->label('数量'),
-                TextEntry::make('updated_at')->label('最后更新')->dateTime('Y-m-d H:i:s'),
-                TextEntry::make('email')->label('客户邮箱')->copyable()->columnSpan(2),
-                TextEntry::make('buy_ip')->label('下单 IP')->copyable(),
-                TextEntry::make('deleted_at')->label('历史归档时间')->dateTime('Y-m-d H:i')->placeholder('未归档'),
+            Group::make()->columns(['lg' => 2])->extraAttributes(['class' => 'shop-order-facts'])->schema([
+                Group::make()->schema([
+                    Section::make('订单与交付')->schema([
+                        TextEntry::make('status')->label('交付状态')->inlineLabel()->badge()->formatStateUsing(fn ($state) => OrderState::delivery((int) $state))->color(fn ($state) => OrderState::color((int) $state)),
+                        TextEntry::make('type')->label('交付方式')->inlineLabel()->formatStateUsing(fn ($state) => OrderState::TYPES[(int) $state] ?? '未知'),
+                        TextEntry::make('title')->label('订单商品')->inlineLabel(),
+                        TextEntry::make('buy_amount')->label('数量')->inlineLabel(),
+                        TextEntry::make('email')->label('客户邮箱')->inlineLabel()->copyable(),
+                        TextEntry::make('order_sn')->label('订单号')->inlineLabel()->copyable(),
+                    ]),
+                ]),
+                Group::make()->schema([
+                    Section::make('支付记录')->description('处理失败不代表退款；缺少交易号不视作支付凭证。')->schema([
+                        TextEntry::make('payment')->label('支付记录')->inlineLabel()->state(fn (Order $record) => OrderState::payment((int) $record->status, $record->trade_no, $record->actual_price)),
+                        TextEntry::make('pay.pay_name')->label('渠道')->inlineLabel()->placeholder('未选渠道'),
+                        TextEntry::make('trade_no')->label('渠道交易号')->inlineLabel()->placeholder('未记录')->copyable(),
+                    ]),
+                    Section::make('金额明细')->schema([
+                        TextEntry::make('goods_price')->label('商品单价')->inlineLabel()->numeric(decimalPlaces: 2),
+                        TextEntry::make('total_price')->label('原始总额')->inlineLabel()->numeric(decimalPlaces: 2),
+                        TextEntry::make('coupon.coupon')->label('优惠码')->inlineLabel()->placeholder('未使用'),
+                        TextEntry::make('coupon_discount_price')->label('优惠券抵扣')->inlineLabel()->numeric(decimalPlaces: 2),
+                        TextEntry::make('wholesale_discount_price')->label('批发优惠')->inlineLabel()->numeric(decimalPlaces: 2),
+                        TextEntry::make('actual_price')->label('订单金额')->inlineLabel()->numeric(decimalPlaces: 2)->weight('bold'),
+                    ]),
+                ]),
             ]),
-            Section::make('支付与金额')->description('支付记录与交付状态独立展示；处理失败不代表退款，缺少交易号不视作支付凭证。')->columns(4)->schema([
-                TextEntry::make('payment')->label('支付记录')->state(fn (Order $record) => OrderState::payment((int) $record->status, $record->trade_no, $record->actual_price)),
-                TextEntry::make('pay.pay_name')->label('渠道')->placeholder('未选渠道'),
-                TextEntry::make('trade_no')->label('渠道交易号')->placeholder('未记录')->copyable()->columnSpan(2),
-                TextEntry::make('goods_price')->label('商品单价')->numeric(decimalPlaces: 2),
-                TextEntry::make('total_price')->label('原始总额')->numeric(decimalPlaces: 2),
-                TextEntry::make('actual_price')->label('订单金额')->numeric(decimalPlaces: 2),
-                TextEntry::make('coupon.coupon')->label('优惠码')->placeholder('未使用'),
-                TextEntry::make('coupon_discount_price')->label('优惠券抵扣')->numeric(decimalPlaces: 2),
-                TextEntry::make('wholesale_discount_price')->label('批发优惠')->numeric(decimalPlaces: 2),
+            Section::make('记录信息')->collapsible()->collapsed()->schema([
+                TextEntry::make('created_at')->label('下单时间')->inlineLabel()->dateTime('Y-m-d H:i:s'),
+                TextEntry::make('updated_at')->label('最后更新')->inlineLabel()->dateTime('Y-m-d H:i:s'),
+                TextEntry::make('buy_ip')->label('下单 IP')->inlineLabel()->copyable(),
+                TextEntry::make('deleted_at')->label('历史归档时间')->inlineLabel()->dateTime('Y-m-d H:i')->placeholder('未归档'),
             ]),
             Section::make('敏感订单内容')->schema([
                 TextEntry::make('protected_details')->hiddenLabel()->state('客户提交信息、交付卡密与查询密码不在页面中加载。需要核查时，使用「下载完整详情」并验证管理员密码。'),

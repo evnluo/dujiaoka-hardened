@@ -58,7 +58,7 @@ class Settings extends Page
     public function form(Schema $schema): Schema
     {
         return $schema->statePath('data')->components([
-            Tabs::make('settings')->tabs([
+            Tabs::make('settings')->contained(false)->tabs([
                 Tab::make('店铺')->schema([
                     Section::make('基本信息')->columns(2)->schema([
                         TextInput::make('title')->label('网站标题')->required()->maxLength(200),
@@ -91,7 +91,7 @@ class Settings extends Page
                     ]),
                 ]),
                 Tab::make('邮件')->schema([
-                    Section::make('SMTP 发送')->description('保存后可使用右上角「发送测试邮件」。测试只证明服务器接受发送，不保证收件箱送达。')->columns(2)->schema([
+                    Section::make('SMTP 发送')->key('smtp', isInheritable: false)->description('先保存配置，再发送测试邮件。服务器接受发送不代表收件箱送达。')->columns(2)->schema([
                         Select::make('driver')->label('发送方式')->options(['smtp' => 'SMTP'])->required(),
                         TextInput::make('host')->label('SMTP 主机')->maxLength(255),
                         TextInput::make('port')->label('端口')->integer()->minValue(1)->maxValue(65535),
@@ -100,7 +100,7 @@ class Settings extends Page
                         self::secret('password', 'SMTP 密码'),
                         TextInput::make('from_address')->label('发件邮箱')->email()->maxLength(200),
                         TextInput::make('from_name')->label('发件名称')->maxLength(200),
-                    ]),
+                    ])->footerActions([$this->testMailAction()]),
                 ]),
                 Tab::make('消息推送')->schema([
                     Section::make('Telegram')->columns(2)->schema([
@@ -136,9 +136,9 @@ class Settings extends Page
         Notification::make()->title('店铺设置已保存')->body('后台任务使用最新配置；若使用常驻队列，请确保已重启队列进程。')->success()->send();
     }
 
-    protected function getHeaderActions(): array
+    public function testMailAction(): Action
     {
-        return [Action::make('testMail')->label('发送测试邮件')->color('gray')->icon('heroicon-o-paper-airplane')
+        return Action::make('testMail')->label('发送测试邮件')->color('gray')->icon('heroicon-o-paper-airplane')
             ->modalDescription('使用已保存的 SMTP 配置发送一封真实测试邮件。未保存的表单值不会用于发送。')
             ->schema([
                 TextInput::make('to')->label('收件邮箱')->email()->required()->maxLength(200),
@@ -167,6 +167,6 @@ class Settings extends Page
                 } finally {
                     Mail::purge('admin_test'); config(['mail.mailers.admin_test' => null]);
                 }
-            })];
+            });
     }
 }

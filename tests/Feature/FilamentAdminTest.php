@@ -496,6 +496,72 @@ class FilamentAdminTest extends TestCase
         $this->assertSame(7, (int) \App\Models\Goods::find(7)->in_stock);
     }
 
+    public function test_product_editor_preserves_grouped_inputs_and_discloses_stock_by_delivery_type(): void
+    {
+        $create = Livewire::test(CreateGoods::class)
+            ->assertFormFieldIsHidden('in_stock')
+            ->fillForm(['type' => 2])->assertFormFieldIsVisible('in_stock');
+        $create->fillForm([
+            'gd_name' => 'Grouped manual product', 'gd_description' => 'Short description', 'group_id' => 1,
+            'actual_price' => 20, 'retail_price' => 25, 'in_stock' => 6, 'buy_limit_num' => 4,
+            'wholesale_price_cnf' => '2=18.50', 'other_ipu_cnf' => 'account=账号=true=请输入账号',
+            'description' => '<p>Product details</p>', 'buy_prompt' => '<p>Delivery requirements</p>',
+            'gd_keywords' => 'synthetic', 'api_hook' => 'https://example.test/hook', 'ord' => 7, 'is_open' => false,
+        ])->call('create')->assertHasNoFormErrors();
+        $goods = \App\Models\Goods::where('gd_name', 'Grouped manual product')->firstOrFail();
+        $this->assertSame(6, (int) $goods->in_stock);
+        $this->assertSame('2=18.50', $goods->wholesale_price_cnf);
+        $this->assertSame('account=账号=true=请输入账号', $goods->other_ipu_cnf);
+        $this->assertSame('https://example.test/hook', $goods->api_hook);
+        $this->assertSame('synthetic', $goods->gd_keywords);
+
+        $edit = Livewire::test(EditGoods::class, ['record' => $goods->id])
+            ->assertFormFieldIsHidden('in_stock')->assertFormFieldIsDisabled('type')
+            ->fillForm(['wholesale_price_cnf' => 'invalid'])->call('save')->assertHasFormErrors(['wholesale_price_cnf']);
+        $edit->fillForm(['wholesale_price_cnf' => '3=17.50', 'gd_description' => 'Changed description'])
+            ->callAction(TestAction::make('addStock')->schemaComponent('fulfillment', 'form'), data: ['quantity' => 2])
+            ->assertHasNoActionErrors()->assertNotified()
+            ->assertFormSet(['gd_description' => 'Changed description'])
+            ->call('save')->assertHasNoFormErrors();
+        $this->assertSame(8, (int) $goods->fresh()->in_stock);
+        $this->assertSame('3=17.50', $goods->fresh()->wholesale_price_cnf);
+        Livewire::test(EditGoods::class, ['record' => 7])
+            ->assertActionVisible(TestAction::make('inventory')->schemaComponent('fulfillment', 'form'))
+            ->assertDontSee('增加人工库存');
+        $this->assertTrue(\App\Filament\Resources\Goods\GoodsResource::addStockAction()->record(\App\Models\Goods::find(7))->isHidden());
+        Livewire::test(ManageCards::class, ['tableFilters' => ['goods_id' => ['value' => 7]]])
+            ->assertCanSeeTableRecords(Carmis::where('goods_id', 7)->get());
+    }
+
+    public function test_queue_tab_counts_and_filters_stay_current_after_completion(): void
+    {
+        $pending = $this->order(['status' => 2, 'type' => 2, 'trade_no' => 'verified']);
+        $failed = $this->order(['status' => 5, 'type' => 2, 'trade_no' => 'verified']);
+        $page = Livewire::test(ListOrders::class)->set('activeTab', 'manual')
+            ->assertCanSeeTableRecords([$pending])->assertCanNotSeeTableRecords([$failed]);
+        $this->assertSame('1', $page->instance()->getCachedTabs()['manual']->getBadge());
+        $page->callAction(TestAction::make('complete')->table($pending), data: ['message' => 'Done'])
+            ->assertHasNoActionErrors()->assertCanNotSeeTableRecords([$pending]);
+        $this->assertSame('0', $page->instance()->getCachedTabs()['manual']->getBadge());
+        $page->set('activeTab', 'attention')->assertCanSeeTableRecords([$failed]);
+        $this->assertSame('1', $page->instance()->getCachedTabs()['attention']->getBadge());
+        $unpaid = $this->order(['status' => 1]);
+        $page->set('activeTab', 'unpaid')->assertCanSeeTableRecords([$unpaid])->assertCanNotSeeTableRecords([$pending, $failed]);
+        $page->set('activeTab', 'completed')->assertCanSeeTableRecords([$pending])->assertCanNotSeeTableRecords([$unpaid, $failed]);
+    }
+
+    public function test_mail_test_is_contextual_and_requires_saved_configuration(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+        $page = Livewire::test(Settings::class);
+        $this->assertEmpty($page->instance()->getCachedHeaderActions());
+        $page->fillForm(['host' => 'unsaved.example.test', 'from_address' => 'unsaved@example.test'])
+            ->callAction(TestAction::make('testMail')->schemaComponent('smtp', 'form'), data: [
+                'to' => 'recipient@example.test', 'subject' => 'Synthetic test', 'body' => 'Do not send',
+            ])->assertHasNoActionErrors()->assertNotified('请先保存 SMTP 主机与发件邮箱');
+        \Illuminate\Support\Facades\Mail::assertNothingSent();
+    }
+
     private function order(array $values = []): Order
     {
         $id = DB::table('orders')->insertGetId(array_replace([
