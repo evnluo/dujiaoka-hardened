@@ -30,6 +30,12 @@ Compact operations workspace for a small digital-goods shop. Use Filament core c
 - SMTP test belongs below SMTP configuration inside the Mail tab and uses saved settings only. Uncontained settings tabs remove the extra panel padding around sections. The global Save action remains after the settings form.
 - Inventory retains visible multiline content, full copy/view/edit and the parent card's sold/loop policies. The shared navigation and toolbar fixes apply without redesigning the inventory workflow.
 
+## Bulk workflows
+
+- Selection reveals contextual bulk menus rather than permanent extra buttons. Orders group the two delivery outcomes; inventory separates sale status from delivery reuse, ahead of the existing archive/download controls.
+- Order confirmation shows selection count, the 1,000-record limit and eligible manual-order scope, then the common customer-visible result and default-off notification choice. Failure is explicitly not a refund. Inventory confirmations spell out resale for unused resets and unchanged sale status for cycling; no private-note or automatic-notification ambiguity.
+- Results distinguish changed, already-at-target and skipped records with actionable grouped reasons; confirmed operations clear selection. No layout/theme replacement was needed. Synthetic real Livewire modals were opened at 1440px and 390px iframe viewports (plus native desktop completion), with default-off notification, wrapped copy and visible confirmation controls. No page or modal horizontal overflow was measured. Fixtures cover modal behavior/geometry only; persistent mutations and concurrency are verified by application/MariaDB tests.
+
 ## Implementation
 
 `resources/css/filament/admin/theme.css` is the custom Tailwind/Filament theme, compiled with Vite. Panel configuration lives in `app/Providers/Filament/AdminPanelProvider.php`. Use normal Filament APIs before overriding view templates or internals.

@@ -438,6 +438,9 @@ final class RecordingMySqlConnection extends Connection
     public function select($query, $bindings = [], $useReadPdo = true, array $fetchUsing = [])
     {
         $this->selectQueries[] = $query;
+        if (stripos($query, 'from `goods`') !== false) {
+            return [(object) ['id' => 7, 'type' => 1, 'deleted_at' => null]];
+        }
         if (stripos($query, 'from `orders`') !== false) {
             return [(object) [
                 'id' => 1,
@@ -806,7 +809,7 @@ $tests['Fulfilment rejects a different transaction on an already-paid order'] = 
     assertSameValue([], $subject['goods']->salesCalls, 'mismatched retry must not increment sales');
 };
 
-$tests['Automatic fulfilment selects card rows with a write lock'] = function (): void {
+$tests['Automatic fulfilment locks the product before selecting card rows with a write lock'] = function (): void {
     $connection = new RecordingMySqlConnection();
     Carmis::setConnectionResolver(new SingleConnectionResolver($connection));
     try {
@@ -816,10 +819,15 @@ $tests['Automatic fulfilment selects card rows with a write lock'] = function ()
     }
 
     assertSameValue(1, count($cards), 'one card fixture must be selected');
-    assertSameValue(1, count($connection->selectQueries), 'card selection must execute one query');
+    assertSameValue(2, count($connection->selectQueries), 'allocation must lock the product and then its cards');
     assertSameValue(
         true,
-        stripos($connection->selectQueries[0], 'for update') !== false,
+        stripos($connection->selectQueries[0], 'from `goods`') !== false && stripos($connection->selectQueries[0], 'for update') !== false,
+        'product lock must precede card locks to match admin writers'
+    );
+    assertSameValue(
+        true,
+        stripos($connection->selectQueries[1], 'from `carmis`') !== false && stripos($connection->selectQueries[1], 'for update') !== false,
         'card selection query must lock rows until fulfilment commits'
     );
 };

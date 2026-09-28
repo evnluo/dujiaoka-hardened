@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Cards;
 
 use App\Filament\Support\ActionFeedback;
+use App\Filament\Support\BulkSelection;
 use App\Filament\Resources\ShopResource;
 use App\Filament\Support\InventoryOperations;
 use App\Filament\Support\SensitiveActions;
@@ -106,7 +107,15 @@ class CarmisResource extends ShopResource
                         Notification::make()->title('卡密已归档')->success()->send();
                     }),
                 RestoreAction::make()->label('恢复到库存'),
-            ])->toolbarActions([BulkActionGroup::make([
+            ])->maxSelectableRecords(1000)->toolbarActions([BulkActionGroup::make([
+                BulkActionGroup::make([
+                    self::stockAction('markUsed', '标记已使用', Carmis::STATUS_SOLD, '从可销售库存中移出；不改动循环设置、卡密内容或历史订单。'),
+                    self::stockAction('markUnused', '标记未使用', Carmis::STATUS_UNSOLD, '将未归档卡密重新放回可销售库存，包括曾经售出的卡密，允许再次出售。不改动循环设置或历史订单。'),
+                ])->label('销售状态')->dropdown(false),
+                BulkActionGroup::make([
+                    self::stockAction('enableCycling', '启用循环', 1, '允许卡密在后续交付时重复使用；销售状态不变，已使用卡密不会自动恢复可售。历史订单不变。', true),
+                    self::stockAction('disableCycling', '停用循环', 0, '后续交付按一次性卡密处理；销售状态不变，历史订单不变。', true),
+                ])->label('交付复用')->dropdown(false),
                 BulkAction::make('archive')->label('归档所选库存')->color('gray')->requiresConfirmation()
                     ->modalDescription('仅允许未售出的非循环卡密。选中已售出或循环卡密时，整次操作会被拒绝。')
                     ->action(function (Collection $records): void {
@@ -123,6 +132,20 @@ class CarmisResource extends ShopResource
                         return SensitiveActions::download('cards-'.now()->format('Ymd-His').'.txt', $cards);
                     })->deselectRecordsAfterCompletion(),
             ])])->emptyStateHeading('暂无卡密')->emptyStateDescription('选择自动发货商品，导入每行一条的 UTF-8 文本。');
+    }
+
+    private static function stockAction(string $name, string $label, int $target, string $description, bool $cycling = false): BulkAction
+    {
+        return BulkAction::make($name)->label($label)->color('gray')->fetchSelectedRecords(false)->requiresConfirmation()
+            ->modalHeading($label)
+            ->modalDescription(fn ($livewire): string => '已选 '.count(BulkSelection::ids($livewire)).' 条。'.$description.' 不发送通知，不恢复归档卡密。每次最多 1,000 条，跳过记录会说明原因。')
+            ->action(function ($livewire) use ($target, $cycling): void {
+                $result = ActionFeedback::run(fn () => $cycling
+                    ? InventoryOperations::setCycling(BulkSelection::ids($livewire), (bool) $target)
+                    : InventoryOperations::setStatus(BulkSelection::ids($livewire), $target));
+                $result->send();
+                BulkSelection::clear($livewire);
+            })->deselectRecordsAfterCompletion();
     }
 
     public static function getPages(): array { return ['index' => Pages\ManageCards::route('/')]; }

@@ -7,6 +7,7 @@ use App\Filament\Support\OrderState;
 use App\Models\Order;
 use BackedEnum;
 use Filament\Actions\ActionGroup;
+use Filament\Actions\BulkActionGroup;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Infolists\Components\TextEntry;
@@ -82,6 +83,8 @@ class OrderResource extends ShopResource
                 ViewAction::make()->label('详情'),
                 OrderActions::processing(),
                 ActionGroup::make([OrderActions::complete(), OrderActions::fail(), OrderActions::download()])->label('更多操作'),
+            ])->maxSelectableRecords(1000)->toolbarActions([
+                BulkActionGroup::make([OrderActions::bulkComplete(), OrderActions::bulkFail()])->label('批量交付状态'),
             ])->emptyStateHeading('没有匹配的订单')->emptyStateDescription('可以调整筛选条件或搜索订单号、邮箱、渠道交易号。');
     }
 

@@ -3,17 +3,47 @@
 namespace App\Filament\Resources\Orders;
 
 use App\Filament\Support\ActionFeedback;
+use App\Filament\Support\BulkSelection;
 use App\Filament\Support\OrderOperations;
 use App\Filament\Support\OrderState;
 use App\Filament\Support\SensitiveActions;
 use App\Models\Order;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 
 final class OrderActions
 {
+    public static function bulkComplete(): BulkAction
+    {
+        return self::bulkResult('bulkComplete', '完成所选订单', 4, 'primary');
+    }
+
+    public static function bulkFail(): BulkAction
+    {
+        return self::bulkResult('bulkFail', '标记处理失败', 5, 'danger');
+    }
+
+    private static function bulkResult(string $name, string $label, int $target, string $color): BulkAction
+    {
+        return BulkAction::make($name)->label($label)->color($color)->fetchSelectedRecords(false)
+            ->requiresConfirmation()->modalHeading($label)
+            ->modalDescription(fn ($livewire): string => '已选 '.count(BulkSelection::ids($livewire)).' 条。每次最多 1,000 条，仅更新已支付或零元的待处理 / 处理中人工订单；不符合条件的记录将跳过并说明原因。不分配卡密、不重新交付、不确认支付；失败不代表退款。')
+            ->schema([
+                Textarea::make('message')->label('处理结果（客户可见）')->required()->maxLength(10000)->rows(4)
+                    ->helperText('同一结果追加到每条已更改订单的详情，不是私密备注。'),
+                Toggle::make('notify_customer')->label('通知客户')->default(false)
+                    ->helperText('默认只更新记录，不发送邮件、推送或 webhook。开启后仅为本次已更改的订单提交状态邮件。'),
+            ])
+            ->action(function ($livewire, array $data) use ($target): void {
+                $result = ActionFeedback::run(fn () => OrderOperations::bulkFulfil(BulkSelection::ids($livewire), $target, $data['message'], (bool) ($data['notify_customer'] ?? false)));
+                $result->send();
+                BulkSelection::clear($livewire);
+            })->deselectRecordsAfterCompletion();
+    }
+
     public static function processing(): Action
     {
         return Action::make('processing')->label('开始处理')->icon('heroicon-o-play')->requiresConfirmation()

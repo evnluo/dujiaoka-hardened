@@ -48,7 +48,21 @@ namespace {
     $app->instance('validator', new Factory(new Translator(new ArrayLoader(), 'en'), $app));
     Facade::setFacadeApplication($app);
 
-    DB::statement('CREATE TABLE goods (id int PRIMARY KEY, type int NOT NULL, created_at datetime NULL, updated_at datetime NULL, deleted_at datetime NULL) ENGINE=InnoDB');
+    $app['config']->set('app.url', 'https://shop.example.test');
+    $app->instance(\App\Support\ShopSettings::class, new class {
+        public function get($key, $default = null) { return $default; }
+    });
+    $app->instance(\Illuminate\Contracts\Bus\Dispatcher::class, new class {
+        public function dispatch($job) { check(DB::transactionLevel() === 0, 'notification before commit'); return $job; }
+    });
+    foreach (['GoodsService', 'CouponService', 'OrderService', 'CarmisService', 'OrderProcessService'] as $service) {
+        $app->bind('Service\\'.$service, 'App\\Service\\'.$service);
+    }
+    $app->instance('Service\\EmailtplService', new class {
+        public function detailByToken(string $token): array { return ['tpl_name' => 'Test', 'tpl_content' => '{ord_info}']; }
+    });
+    DB::statement('CREATE TABLE goods (id int PRIMARY KEY, type int NOT NULL, gd_name varchar(100) DEFAULT \'Synthetic\', sales_volume int DEFAULT 0, created_at datetime NULL, updated_at datetime NULL, deleted_at datetime NULL) ENGINE=InnoDB');
+    DB::statement('CREATE TABLE orders (id int AUTO_INCREMENT PRIMARY KEY, order_sn varchar(100), goods_id int, status int, actual_price decimal(10,2), trade_no varchar(100), type int, buy_amount int, info text, title varchar(100), email varchar(100), created_at datetime NULL, updated_at datetime NULL, deleted_at datetime NULL) ENGINE=InnoDB');
     DB::statement('CREATE TABLE carmis (id bigint AUTO_INCREMENT PRIMARY KEY, goods_id int NOT NULL, status tinyint NOT NULL DEFAULT 1, is_loop tinyint NOT NULL DEFAULT 0, carmi text NOT NULL, created_at datetime NULL, updated_at datetime NULL, deleted_at datetime NULL, KEY idx_goods_id (goods_id)) ENGINE=InnoDB');
 
     function check(bool $ok, string $message): void
@@ -61,6 +75,7 @@ namespace {
     function seed(): void
     {
         DB::table('carmis')->delete();
+        DB::table('orders')->delete();
         DB::table('goods')->delete();
         DB::table('goods')->insert(['id' => 7, 'type' => 1]);
         DB::table('carmis')->insert([
@@ -114,15 +129,26 @@ namespace {
             send($socket, ['stage' => 'ready', 'connection' => (int) DB::selectOne('SELECT CONNECTION_ID() AS id')->id]);
             check(receive($socket)['stage'] === 'go', 'missing worker start');
             if ($pauseAfterWrite) {
-                DB::listen(function (QueryExecuted $query) use ($socket): void {
-                    if (preg_match('/^(update|insert into) `carmis`/i', $query->sql)) {
+                $paused = false;
+                DB::listen(function (QueryExecuted $query) use ($socket, &$paused): void {
+                    if (! $paused && preg_match('/^(update|insert into) `carmis`/i', $query->sql)) {
+                        $paused = true;
                         check(DB::transactionLevel() > 0, 'inventory write escaped transaction');
                         send($socket, ['stage' => 'written']);
                         check(receive($socket)['stage'] === 'commit', 'missing commit release');
                     }
                 });
             }
-            if ($operation === 'import') {
+            if ($operation === 'fulfil') {
+                $order = app('Service\\OrderProcessService')->completedOrder('BULK-RACE', 10, 'SYNTHETIC-TRADE');
+                $result = ['outcome' => 'fulfilled', 'status' => (int) $order->status];
+            } elseif (in_array($operation, ['used', 'unused', 'loopOn', 'loopOff', 'multiOn', 'multiOff'], true)) {
+                $ids = str_starts_with($operation, 'multi') ? ($operation === 'multiOn' ? [601, 501] : [501, 601]) : [501];
+                $counts = in_array($operation, ['used', 'unused'], true)
+                    ? InventoryOperations::setStatus($ids, $operation === 'used' ? 2 : 1)
+                    : InventoryOperations::setCycling($ids, in_array($operation, ['loopOn', 'multiOn'], true));
+                $result = ['outcome' => 'set', 'changed' => $counts->changed, 'unchanged' => $counts->unchanged, 'skipped' => $counts->skipped];
+            } elseif ($operation === 'import') {
                 $result = ['outcome' => 'imported', 'counts' => InventoryOperations::import(7, 'SYNTHETIC-SHARED-SECRET')];
             } else {
                 InventoryOperations::update($cardId, ['carmi' => 'SYNTHETIC-SHARED-SECRET']);
@@ -222,7 +248,67 @@ namespace {
         }
     }
 
+    function bulkRace(string $firstOperation, string $secondOperation, int $loop, bool $staleSnapshot = false): void
+    {
+        seed();
+        DB::table('carmis')->where('id', 501)->update(['is_loop' => $loop, 'status' => $firstOperation === 'unused' ? 2 : 1]);
+        DB::table('goods')->insert(['id' => 8, 'type' => 1]);
+        DB::table('carmis')->insert(['id' => 601, 'goods_id' => 8, 'carmi' => 'SYNTHETIC-OTHER-PRODUCT']);
+        DB::table('orders')->insert(['order_sn' => 'BULK-RACE', 'goods_id' => 7, 'status' => 1, 'actual_price' => 10, 'trade_no' => '', 'type' => 1, 'buy_amount' => 1, 'title' => 'Synthetic', 'email' => 'buyer@example.test']);
+        $first = worker($firstOperation, 501, true, false);
+        $second = worker($secondOperation, 501, false, $staleSnapshot);
+        try {
+            $a = receive($first['socket']);
+            $b = receive($second['socket']);
+            send($first['socket'], ['stage' => 'go']);
+            check(receive($first['socket'])['stage'] === 'written', 'first bulk/fulfil writer failed');
+            send($second['socket'], ['stage' => 'go']);
+            $deadline = microtime(true) + 8;
+            do {
+                $waiting = DB::connection('observer')->selectOne(
+                    'SELECT COUNT(*) AS n FROM information_schema.INNODB_LOCK_WAITS w '
+                    . 'JOIN information_schema.INNODB_TRX waiter ON waiter.trx_id = w.requesting_trx_id '
+                    . 'JOIN information_schema.INNODB_TRX blocker ON blocker.trx_id = w.blocking_trx_id '
+                    . 'WHERE waiter.trx_mysql_thread_id = ? AND blocker.trx_mysql_thread_id = ?', [$b['connection'], $a['connection']]
+                );
+                if ((int) $waiting->n > 0) { break; }
+                check(microtime(true) < $deadline, 'competing setter/fulfilment did not serialize');
+                usleep(200000);
+            } while (true);
+            send($first['socket'], ['stage' => 'commit']);
+            $ar = receive($first['socket'])['result'];
+            $br = receive($second['socket'])['result'];
+            check(in_array($ar['outcome'], ['fulfilled', 'set'], true) && ($ar['skipped'] ?? 0) === 0, 'first writer failed: '.json_encode($ar));
+            check(in_array($br['outcome'], ['fulfilled', 'set'], true) && ($br['skipped'] ?? 0) === 0, 'second writer failed: '.json_encode($br));
+            DB::disconnect();
+            if (str_starts_with($firstOperation, 'multi')) {
+                check(Carmis::whereIn('id', [501, 601])->where('is_loop', 0)->count() === 2, 'overlapping multi-product setter lost an update');
+                check($ar['changed'] === 2 && $br['changed'] === 2, 'multi-product counts are inaccurate');
+            } else {
+                $card = Carmis::findOrFail(501);
+                $setter = $firstOperation === 'fulfil' ? $secondOperation : $firstOperation;
+                $expectedLoop = $setter === 'loopOn' ? 1 : ($setter === 'loopOff' ? 0 : $loop);
+                $expectedStatus = $secondOperation === 'unused' ? 1 : (($secondOperation === 'used' || $firstOperation === 'used') ? 2 : (($firstOperation === 'fulfil' ? $loop : $expectedLoop) ? 1 : 2));
+                check((int) $card->is_loop === $expectedLoop && (int) $card->status === $expectedStatus, 'stale loop/status overwrote the serialized result');
+                check(DB::table('orders')->value('info') === ($firstOperation === 'used' ? 'SYNTHETIC-ORIGINAL-502' : 'SYNTHETIC-ORIGINAL-501'), 'setter rewrote delivery history');
+                check((int) DB::table('orders')->value('status') === 4, 'fulfilment failed');
+                check((int) DB::table('goods')->where('id', 7)->value('sales_volume') === 1, 'duplicate sale');
+            }
+        } finally {
+            foreach ([$first, $second] as $child) {
+                fclose($child['socket']);
+                pcntl_waitpid($child['pid'], $status);
+            }
+        }
+    }
+
     $tests = [];
+    foreach ([['fulfil', 'loopOn', 0], ['fulfil', 'loopOff', 1], ['loopOn', 'fulfil', 0], ['loopOff', 'fulfil', 1], ['fulfil', 'unused', 0], ['fulfil', 'used', 1], ['used', 'fulfil', 0], ['unused', 'fulfil', 0], ['multiOn', 'multiOff', 0]] as [$first, $second, $loop]) {
+        $tests["bulk $first / $second"] = fn () => bulkRace($first, $second, $loop);
+        if ($second !== 'fulfil') {
+            $tests["bulk $first / $second with old RR snapshot"] = fn () => bulkRace($first, $second, $loop, true);
+        }
+    }
     foreach ([[1, 0], [2, 0], [1, 1], [2, 1]] as [$status, $loop]) {
         foreach ([false, true] as $snapshot) {
             foreach ([['update', 'update'], ['import', 'update'], ['update', 'import'], ['import', 'import']] as [$first, $second]) {
@@ -258,7 +344,10 @@ namespace {
         check(Carmis::findOrFail(502)->carmi === 'SYNTHETIC-UNIQUE-REPLACEMENT', 'valid replacement did not persist');
     };
     $failures = 0;
+    $executed = 0;
     foreach ($tests as $name => $run) {
+        if (getenv('TEST_FILTER') && ! str_contains($name, getenv('TEST_FILTER'))) { continue; }
+        $executed++;
         try {
             $run();
             echo "PASS: $name\n";
@@ -267,6 +356,6 @@ namespace {
             echo "FAIL: $name: {$e->getMessage()}\n";
         }
     }
-    echo count($tests) . " MariaDB inventory tests, $failures failures\n";
+    echo "$executed MariaDB inventory tests, $failures failures\n";
     exit($failures ? 1 : 0);
 }

@@ -11,6 +11,7 @@ namespace App\Service;
 
 
 use App\Models\Carmis;
+use App\Models\Goods;
 
 class CarmisService
 {
@@ -28,6 +29,9 @@ class CarmisService
      */
     public function withGoodsByAmountAndStatusUnsold(int $goodsID, int $byAmount)
     {
+        // Match admin import/edit/setter locking: product first, then ordered cards.
+        // Hold this through allocation and sales-volume update in the owning transaction.
+        Goods::withTrashed()->whereKey($goodsID)->lockForUpdate()->firstOrFail();
         $carmis = Carmis::query()
             ->where('goods_id', $goodsID)
             ->where('status', Carmis::STATUS_UNSOLD)

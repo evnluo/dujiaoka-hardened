@@ -4,11 +4,60 @@ namespace App\Filament\Support;
 
 use App\Models\Carmis;
 use App\Models\Goods;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 final class InventoryOperations
 {
+    public static function setStatus(array $ids, int $status): BulkResult
+    {
+        AdminAccess::authorize();
+        if (! in_array($status, [Carmis::STATUS_SOLD, Carmis::STATUS_UNSOLD], true)) {
+            throw ValidationException::withMessages(['selection' => '请选择已使用或未使用状态。']);
+        }
+        return self::setField($ids, 'status', $status);
+    }
+
+    public static function setCycling(array $ids, bool $enabled): BulkResult
+    {
+        AdminAccess::authorize();
+        return self::setField($ids, 'is_loop', $enabled ? 1 : 0);
+    }
+
+    private static function setField(array $ids, string $field, int $value): BulkResult
+    {
+        $ids = BulkResult::ids($ids);
+        $result = new BulkResult();
+        // Routing hints only. Every card is re-read under its product lock below.
+        $products = Carmis::withTrashed()->whereKey($ids)->pluck('goods_id', 'id')->all();
+        usort($ids, fn ($a, $b) => [($products[$a] ?? 0), $a] <=> [($products[$b] ?? 0), $b]);
+        foreach (array_chunk($ids, 100) as $chunk) {
+            foreach ($chunk as $id) {
+                try {
+                    $outcome = DB::transaction(function () use ($id, $products, $field, $value): string {
+                        $goodsId = $products[$id] ?? null;
+                        $goods = $goodsId ? Goods::withTrashed()->lockForUpdate()->find($goodsId) : null;
+                        if (! $goods) { return '所属商品或卡密不存在，请刷新后核查。'; }
+                        $card = Carmis::withTrashed()->where('goods_id', $goodsId)->lockForUpdate()->find($id);
+                        if (! $card || $card->trashed()) { return '卡密已归档或不存在；如需恢复，请单独核查归档记录。'; }
+                        if ((int) $card->{$field} === $value) { return 'unchanged'; }
+                        // A setter changes only its field (plus the audit timestamp).
+                        $card->{$field} = $value;
+                        $card->save();
+                        return 'changed';
+                    });
+                    if ($outcome === 'changed') { $result->changed++; }
+                    elseif ($outcome === 'unchanged') { $result->unchanged++; }
+                    else { $result->skip($outcome); }
+                } catch (QueryException) {
+                    $result->skip('数据库写入失败，此条未更改；请刷新后重试。');
+                }
+            }
+        }
+        return $result;
+    }
+
     public static function parse(string $content): array
     {
         if (strlen($content) > 5 * 1024 * 1024 || ! mb_check_encoding($content, 'UTF-8')) {

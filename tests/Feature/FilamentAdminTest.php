@@ -562,6 +562,260 @@ class FilamentAdminTest extends TestCase
         \Illuminate\Support\Facades\Mail::assertNothingSent();
     }
 
+    public function test_bulk_completion_reports_mixed_selection_and_defaults_to_silent_bookkeeping(): void
+    {
+        config(['queue.default' => 'database']);
+        $paid = $this->order(['status' => 2, 'type' => 2, 'trade_no' => 'verified', 'info' => 'Original']);
+        $free = $this->order(['status' => 3, 'type' => 2, 'actual_price' => 0]);
+        $expired = $this->order(['status' => -1, 'type' => 2]);
+        $done = $this->order(['status' => 4, 'type' => 2, 'trade_no' => 'verified']);
+        $stock = DB::table('carmis')->get()->toJson();
+        $page = Livewire::test(ListOrders::class)->selectTableRecords([$paid->id, $free->id, $expired->id, $done->id])
+            ->mountAction(TestAction::make('bulkComplete')->table()->bulk())
+            ->assertActionDataSet(['notify_customer' => false])
+            ->assertMountedActionModalSee(['已选 4 条', '处理结果（客户可见）', '通知客户'])
+            ->fillForm(['message' => 'Common result'])
+            ->callMountedAction()->assertHasNoActionErrors()
+            ->assertNotified('已更改 2 条 · 未变化 1 条 · 跳过 1 条')->assertSet('selectedTableRecords', []);
+        $this->assertSame("Original\n\nCommon result", $paid->fresh()->info);
+        $this->assertSame(4, (int) $free->fresh()->status);
+        $this->assertSame(-1, (int) $expired->fresh()->status);
+        $this->assertSame(0, DB::table('jobs')->count());
+        $this->assertSame($stock, DB::table('carmis')->get()->toJson());
+        $this->assertSame('0', $page->instance()->getCachedTabs()['manual']->getBadge());
+        $page->selectTableRecords([$paid->id, $free->id, $expired->id, $done->id])
+            ->callAction(TestAction::make('bulkComplete')->table()->bulk(), data: ['message' => 'Retry', 'notify_customer' => true])
+            ->assertNotified('已更改 0 条 · 未变化 3 条 · 跳过 1 条');
+        $this->assertSame("Original\n\nCommon result", $paid->fresh()->info);
+        $this->assertSame(0, DB::table('jobs')->count());
+    }
+
+    public function test_bulk_outcomes_honour_notification_choice_and_only_mail_changed_orders_after_commit(): void
+    {
+        config(['queue.default' => 'database']);
+        \Illuminate\Support\Facades\Http::preventStrayRequests();
+        DB::table('emailtpls')->insert([
+            ['tpl_name' => 'Completed', 'tpl_token' => 'completed_order', 'tpl_content' => '{ord_info}'],
+            ['tpl_name' => 'Failed', 'tpl_token' => 'failed_order', 'tpl_content' => '{ord_info}'],
+        ]);
+        $events = 0;
+        Event::listen(\App\Events\OrderUpdated::class, function ($event) use (&$events): void {
+            $this->assertSame(0, DB::transactionLevel());
+            $this->assertSame((int) $event->order->status, (int) $event->order->fresh()->status);
+            $events++;
+        });
+        foreach (['bulkFail' => 5, 'bulkComplete' => 4] as $action => $target) {
+            foreach ([false, true] as $notify) {
+                $paid = $this->order(['status' => 3, 'type' => 2, 'trade_no' => 'verified']);
+                $unpaid = $this->order(['status' => 1, 'type' => 2]);
+                $before = DB::table('jobs')->count();
+                $page = Livewire::test(ListOrders::class)->selectTableRecords([$paid->id, $unpaid->id])
+                    ->mountAction(TestAction::make($action)->table()->bulk())
+                    ->assertActionDataSet(['notify_customer' => false])
+                    ->assertMountedActionModalSee(['失败不代表退款', '通知客户'])
+                    ->fillForm(['message' => 'Result', 'notify_customer' => $notify])
+                    ->callMountedAction()->assertHasNoActionErrors()
+                    ->assertNotified('已更改 1 条 · 未变化 0 条 · 跳过 1 条');
+                $this->assertSame($target, (int) $paid->fresh()->status);
+                $this->assertSame('verified', $paid->fresh()->trade_no);
+                $this->assertEquals(10, $paid->fresh()->actual_price);
+                $this->assertSame($before + ($notify ? 1 : 0), DB::table('jobs')->count());
+                $page->selectTableRecords([$paid->id])->callAction(TestAction::make($action)->table()->bulk(), data: ['message' => 'Retry', 'notify_customer' => true])
+                    ->assertNotified('已更改 0 条 · 未变化 1 条 · 跳过 0 条');
+                $this->assertSame($before + ($notify ? 1 : 0), DB::table('jobs')->count());
+            }
+        }
+        $this->assertSame(2, $events);
+    }
+
+    public function test_bulk_card_status_setters_preserve_loop_content_and_history_and_refresh_stock(): void
+    {
+        $order = $this->order(['status' => 4, 'info' => 'ORIGINAL DELIVERY']);
+        $cards = [];
+        foreach ([[1, 0], [2, 0], [1, 1], [2, 1]] as [$status, $loop]) {
+            $id = DB::table('carmis')->insertGetId(['goods_id' => 7, 'carmi' => "CARD-$status-$loop", 'status' => $status, 'is_loop' => $loop]);
+            $cards[] = Carmis::findOrFail($id);
+        }
+        foreach (['markUsed' => 2, 'markUnused' => 1] as $action => $target) {
+            $changed = collect($cards)->filter(fn ($card) => (int) $card->fresh()->status !== $target)->count();
+            $page = Livewire::test(ManageCards::class)->selectTableRecords(collect($cards)->pluck('id')->all())
+                ->mountAction(TestAction::make($action)->table()->bulk())
+                ->assertMountedActionModalSee(['已选 4 条', '历史订单'])
+                ->callMountedAction()->assertHasNoActionErrors()
+                ->assertNotified('已更改 '.$changed.' 条 · 未变化 '.(4 - $changed).' 条 · 跳过 0 条')
+                ->assertSet('selectedTableRecords', []);
+            foreach ($cards as $card) {
+                $this->assertSame($target, (int) $card->fresh()->status);
+                $this->assertSame((int) $card->is_loop, (int) $card->fresh()->is_loop);
+                $this->assertSame($card->carmi, $card->fresh()->carmi);
+                $this->assertSame(7, (int) $card->fresh()->goods_id);
+            }
+            $page->filterTable('status', $target)->assertCanSeeTableRecords($cards);
+            $page->selectTableRecords(collect($cards)->pluck('id')->all())
+                ->callAction(TestAction::make($action)->table()->bulk())
+                ->assertNotified('已更改 0 条 · 未变化 4 条 · 跳过 0 条');
+            $this->assertSame($target === 1 ? 5 : 1, Carmis::where('goods_id', 7)->where('status', 1)->count());
+            $goodsPage = Livewire::test(ListGoods::class);
+            $goods = $goodsPage->instance()->getTableRecords()->firstWhere('id', 7);
+            $this->assertSame($target === 1 ? 5 : 1, (int) $goodsPage->instance()->getTable()->getColumn('available_stock')->record($goods)->getState());
+        }
+        $this->assertSame('ORIGINAL DELIVERY', $order->fresh()->info);
+        $this->assertSame(4, (int) $order->fresh()->status);
+    }
+
+    public function test_bulk_cycling_setters_are_independent_idempotent_and_skip_archived_cards(): void
+    {
+        config(['queue.default' => 'database']);
+        $order = $this->order(['status' => 4, 'info' => 'HISTORICAL DELIVERY']);
+        $cards = [];
+        foreach ([[1, 0], [2, 0], [1, 1], [2, 1]] as [$status, $loop]) {
+            $id = DB::table('carmis')->insertGetId(['goods_id' => 7, 'carmi' => "LOOP-$status-$loop", 'status' => $status, 'is_loop' => $loop]);
+            $cards[] = Carmis::findOrFail($id);
+        }
+        $archived = DB::table('carmis')->insertGetId(['goods_id' => 7, 'carmi' => 'ARCHIVED', 'status' => 2, 'is_loop' => 0, 'deleted_at' => now()]);
+        $ids = [...collect($cards)->pluck('id')->all(), $archived];
+        foreach (['enableCycling' => 1, 'disableCycling' => 0] as $action => $target) {
+            $changed = collect($cards)->filter(fn ($card) => (int) $card->fresh()->is_loop !== $target)->count();
+            $page = Livewire::test(ManageCards::class)->filterTable('trashed', true)->selectTableRecords($ids)
+                ->mountAction(TestAction::make($action)->table()->bulk())
+                ->assertMountedActionModalSee(['已选 5 条', '销售状态不变', '历史订单'])
+                ->callMountedAction()->assertHasNoActionErrors()
+                ->assertNotified('已更改 '.$changed.' 条 · 未变化 '.(4 - $changed).' 条 · 跳过 1 条')
+                ->assertSet('selectedTableRecords', []);
+            foreach ($cards as $card) {
+                $this->assertSame($target, (int) $card->fresh()->is_loop);
+                $this->assertSame((int) $card->status, (int) $card->fresh()->status);
+                $this->assertSame($card->carmi, $card->fresh()->carmi);
+                $this->assertSame(7, (int) $card->fresh()->goods_id);
+            }
+            $page->filterTable('is_loop', $target)->assertCanSeeTableRecords($cards);
+            $page->selectTableRecords($ids)->callAction(TestAction::make($action)->table()->bulk())
+                ->assertNotified('已更改 0 条 · 未变化 4 条 · 跳过 1 条');
+            $this->assertNotNull(Carmis::withTrashed()->find($archived)->deleted_at);
+            $this->assertSame(0, (int) Carmis::withTrashed()->find($archived)->is_loop);
+        }
+        $this->assertSame('HISTORICAL DELIVERY', $order->fresh()->info);
+        $this->assertSame(4, (int) $order->fresh()->status);
+        $this->assertSame(0, DB::table('jobs')->count());
+    }
+
+    public function test_bulk_order_eligibility_and_stale_selection_are_checked_at_submission(): void
+    {
+        config(['queue.default' => 'database']);
+        foreach (['bulkComplete' => 4, 'bulkFail' => 5] as $action => $target) {
+            $eligible = $this->order(['type' => 2, 'status' => 2, 'trade_no' => 'verified']);
+            $stale = $this->order(['type' => 2, 'status' => 2, 'trade_no' => 'verified']);
+            $ineligible = [];
+            foreach ([['status' => 1], ['status' => -1], ['type' => 1], ['status' => 6], ['status' => $target === 4 ? 5 : 4], ['trade_no' => ''], ['deleted_at' => now()], ['info' => str_repeat('x', 60000)]] as $values) {
+                $ineligible[] = $this->order(array_replace(['type' => 2, 'status' => 2, 'trade_no' => 'verified'], $values, ['deleted_at' => null]));
+                if (isset($values['deleted_at'])) { DB::table('orders')->where('id', end($ineligible)->id)->update(['deleted_at' => now()]); }
+            }
+            $ids = [$eligible->id, $stale->id, ...collect($ineligible)->pluck('id')->all(), 999999];
+            $page = Livewire::test(ListOrders::class)->filterTable('trashed', true)->selectTableRecords($ids)
+                ->mountAction(TestAction::make($action)->table()->bulk());
+            DB::table('orders')->where('id', $stale->id)->update(['status' => -1]);
+            $page->fillForm(['message' => 'Result'])->callMountedAction()->assertHasNoActionErrors()
+                ->assertNotified('已更改 1 条 · 未变化 0 条 · 跳过 10 条');
+            $this->assertSame($target, (int) $eligible->fresh()->status);
+            $this->assertSame(-1, (int) $stale->fresh()->status);
+            $this->assertSame(0, DB::table('jobs')->count());
+            $payload = json_encode([$page->effects, $page->snapshot], JSON_THROW_ON_ERROR);
+            $this->assertStringNotContainsString(str_repeat('x', 100), $payload);
+        }
+    }
+
+    public function test_bulk_writes_rollback_one_record_without_aborting_the_rest_or_notifying_it(): void
+    {
+        config(['queue.default' => 'database']);
+        DB::table('emailtpls')->insert(['tpl_name' => 'Completed', 'tpl_token' => 'completed_order', 'tpl_content' => '{ord_info}']);
+        $failed = $this->order(['type' => 2, 'status' => 2, 'trade_no' => 'verified']);
+        $good = $this->order(['type' => 2, 'status' => 2, 'trade_no' => 'verified']);
+        DB::unprepared('CREATE TRIGGER reject_one_order BEFORE UPDATE ON orders WHEN OLD.id = '.$failed->id." BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END");
+        $result = OrderOperations::bulkFulfil([$good->id, $failed->id], 4, 'Result', true);
+        $this->assertSame([1, 0, 1], [$result->changed, $result->unchanged, $result->skipped]);
+        $this->assertSame(2, (int) $failed->fresh()->status);
+        $this->assertSame(4, (int) $good->fresh()->status);
+        $this->assertSame(1, DB::table('jobs')->count());
+        DB::unprepared('DROP TRIGGER reject_one_order');
+        DB::beginTransaction();
+        OrderOperations::bulkFulfil([$failed->id], 4, 'Rolled back', true);
+        DB::rollBack();
+        DB::transaction(fn () => null);
+        $this->assertSame(2, (int) $failed->fresh()->status);
+        $this->assertSame(1, DB::table('jobs')->count());
+        $second = DB::table('carmis')->insertGetId(['goods_id' => 7, 'carmi' => 'SECOND', 'status' => 1]);
+        DB::unprepared("CREATE TRIGGER reject_one_card BEFORE UPDATE ON carmis WHEN OLD.id = 501 BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END");
+        foreach ([fn () => InventoryOperations::setStatus([501, $second], 2), fn () => InventoryOperations::setCycling([501, $second], true)] as $run) {
+            $result = $run();
+            $this->assertSame([1, 0, 1], [$result->changed, $result->unchanged, $result->skipped]);
+        }
+        $this->assertSame(1, (int) Carmis::find(501)->status);
+        $this->assertSame(0, (int) Carmis::find(501)->is_loop);
+    }
+
+    public function test_bulk_notification_submission_failure_does_not_misreport_committed_orders(): void
+    {
+        Event::listen(\App\Events\OrderUpdated::class, function (): void { throw new \RuntimeException('Synthetic queue failure'); });
+        $order = $this->order(['type' => 2, 'status' => 2, 'trade_no' => 'verified']);
+        $result = OrderOperations::bulkFulfil([$order->id], 4, 'Result', true);
+        $this->assertSame([1, 0, 1], [$result->changed, $result->skipped, $result->notificationFailures]);
+        $this->assertSame(4, (int) $order->fresh()->status);
+        $result->send();
+        $this->assertStringContainsString('通知提交失败', session('filament.notifications')[0]['body']);
+    }
+
+    public function test_bulk_entry_points_reject_guests_and_non_admins_including_direct_livewire_submission(): void
+    {
+        $order = $this->order(['type' => 2, 'status' => 2, 'trade_no' => 'verified']);
+        foreach ([ListOrders::class => ['bulkComplete', 'bulkFail'], ManageCards::class => ['markUsed', 'markUnused', 'enableCycling', 'disableCycling']] as $pageClass => $actions) {
+            foreach ($actions as $action) {
+                foreach ([false, true] as $guest) {
+                    DB::table('admin_role_users')->insertOrIgnore(['user_id' => 1, 'role_id' => 1]);
+                    $this->actingAs(AdminUser::find(1), 'admin');
+                    $page = Livewire::test($pageClass)->selectTableRecords([$pageClass === ListOrders::class ? $order->id : 501])
+                        ->mountAction(TestAction::make($action)->table()->bulk());
+                    if ($guest) { auth('admin')->logout(); }
+                    else { DB::table('admin_role_users')->delete(); }
+                    $page->call('callMountedAction')->assertForbidden();
+                    foreach ([fn () => OrderOperations::bulkFulfil([$order->id], 4, 'Unauthorized'), fn () => InventoryOperations::setStatus([501], 2), fn () => InventoryOperations::setCycling([501], true)] as $run) {
+                        try { $run(); $this->fail('Unauthorized bulk write'); }
+                        catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) { $this->assertSame(403, $e->getStatusCode()); }
+                    }
+                }
+            }
+        }
+        $this->assertSame(2, (int) $order->fresh()->status);
+        $this->assertSame(1, (int) Carmis::find(501)->status);
+        $this->assertSame(0, (int) Carmis::find(501)->is_loop);
+    }
+
+    public function test_bulk_selection_limit_validation_and_select_all_are_not_silent_truncation(): void
+    {
+        foreach ([[], range(1, 1001), ['01'], [true], ['1.0']] as $ids) {
+            try { InventoryOperations::setStatus($ids, 2); $this->fail('Invalid selection accepted'); }
+            catch (ValidationException) { $this->assertSame(1, (int) Carmis::find(501)->status); }
+        }
+        Livewire::test(ManageCards::class)->set('selectedTableRecords', range(1, 1001))
+            ->callAction(TestAction::make('markUsed')->table()->bulk())->assertNotified('未执行操作');
+        $this->assertSame(1, (int) Carmis::find(501)->status);
+        Livewire::test(ManageCards::class)->set('isTrackingDeselectedTableRecords', true)
+            ->callAction(TestAction::make('markUsed')->table()->bulk())
+            ->assertNotified('已更改 1 条 · 未变化 0 条 · 跳过 0 条')->assertSet('isTrackingDeselectedTableRecords', false);
+        $this->assertSame(2, (int) Carmis::find(501)->status);
+        $archived = DB::table('carmis')->insertGetId(['goods_id' => 7, 'carmi' => 'ARCHIVED', 'status' => 2, 'deleted_at' => now()]);
+        $result = InventoryOperations::setStatus([501, 501, $archived, 999999], 1);
+        $this->assertSame([1, 0, 2], [$result->changed, $result->unchanged, $result->skipped]);
+        $this->assertSame(2, (int) Carmis::withTrashed()->find($archived)->status);
+        $result = InventoryOperations::setStatus(range(1000, 1999), 1);
+        $this->assertSame(1000, $result->skipped);
+        $rows = [];
+        foreach (range(1000, 1999) as $id) { $rows[] = ['id' => $id, 'goods_id' => 7, 'carmi' => 'BOUNDARY-'.$id, 'status' => 1]; }
+        DB::table('carmis')->insert($rows);
+        Livewire::test(ManageCards::class)->set('isTrackingDeselectedTableRecords', true)
+            ->callAction(TestAction::make('markUsed')->table()->bulk())->assertNotified('未执行操作');
+        $this->assertSame(1001, Carmis::where('status', 1)->count());
+    }
+
     private function order(array $values = []): Order
     {
         $id = DB::table('orders')->insertGetId(array_replace([
