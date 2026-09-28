@@ -84,9 +84,7 @@ final class InventoryOperations
             // Imports and replacements take the same product lock before any card lock.
             Goods::withTrashed()->lockForUpdate()->findOrFail($goodsId);
             $card = Carmis::query()->where('goods_id', $goodsId)->lockForUpdate()->findOrFail($id);
-            if ((int) $card->status !== Carmis::STATUS_UNSOLD || (int) $card->is_loop === 1) {
-                throw ValidationException::withMessages(['carmi' => '已售出或循环卡密不可修改。']);
-            }
+
             if (filled($data['carmi'] ?? null)) {
                 if (Carmis::withTrashed()->where('goods_id', $card->goods_id)->where('carmi', $data['carmi'])->whereKeyNot($card->id)->lockForUpdate()->first(['id'])) {
                     throw ValidationException::withMessages(['carmi' => '该商品已有此卡密（包括已售出及归档记录）。']);

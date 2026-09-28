@@ -9,6 +9,7 @@ use App\Filament\Support\SensitiveActions;
 use App\Models\Order;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 
 final class OrderActions
@@ -19,14 +20,16 @@ final class OrderActions
             ->modalDescription('仅将已支付或零元的人工订单转为处理中，不改动支付记录或库存。')
             ->visible(fn (Order $record): bool => (int) $record->type === 2 && (int) $record->status === 2 && (filled($record->trade_no) || OrderState::isZeroTotal($record->actual_price)) && ! $record->trashed())
             ->action(function (Order $record): void {
-                ActionFeedback::run(fn () => OrderOperations::fulfil($record->id, 3));
+                $updated = ActionFeedback::run(fn () => OrderOperations::fulfil($record->id, 3));
+                $record->status = $updated->status;
+                $record->updated_at = $updated->updated_at;
                 Notification::make()->title('订单已转为处理中')->success()->send();
             });
     }
 
     public static function complete(): Action
     {
-        return self::result('complete', '完成交付', 4, 'primary', '确认已完成商品交付。处理结果会追加至订单详情，并发送客户状态通知。');
+        return self::result('complete', '完成交付', 4, 'primary', '将订单记为已完成，处理结果追加至客户可见的订单详情。默认只更新记录，不发送通知；勾选「通知客户」才发送状态邮件。');
     }
 
     public static function fail(): Action
@@ -38,10 +41,19 @@ final class OrderActions
     {
         return Action::make($name)->label($label)->color($color)->modalDescription($description)
             ->visible(fn (Order $record): bool => OrderState::canFulfil((int) $record->status, (int) $record->type) && (filled($record->trade_no) || OrderState::isZeroTotal($record->actual_price)) && ! $record->trashed())
-            ->schema([Textarea::make('message')->label('处理结果（客户可见）')->required()->maxLength(10000)->rows(5)])
+            ->schema([
+                Textarea::make('message')->label('处理结果（客户可见）')->required()->maxLength(10000)->rows(5),
+                ...($target === 4 ? [Toggle::make('notify_customer')->label('通知客户')->default(false)
+                    ->helperText('关闭时仍会完成订单并保存处理结果，但不会发送邮件、推送或 webhook。')] : []),
+            ])
             ->action(function (Order $record, array $data) use ($target): void {
-                ActionFeedback::run(fn () => OrderOperations::fulfil($record->id, $target, $data['message']));
-                Notification::make()->title('交付状态已更新')->body('支付交易与金额没有变更。')->success()->send();
+                $notifyCustomer = $target === 5 || (bool) ($data['notify_customer'] ?? false);
+                $updated = ActionFeedback::run(fn () => OrderOperations::fulfil($record->id, $target, $data['message'], $notifyCustomer));
+                // Refresh visible state without hydrating protected order details into Livewire.
+                $record->status = $updated->status;
+                $record->updated_at = $updated->updated_at;
+                Notification::make()->title('交付状态已更新')
+                    ->body($notifyCustomer ? '已提交客户状态邮件。支付交易与金额没有变更。' : '仅更新订单记录，未发送客户通知。支付交易与金额没有变更。')->success()->send();
             });
     }
 

@@ -12,7 +12,7 @@ Compact operations workspace for a small digital-goods shop. Use Filament core c
 - Full-width content with 24px desktop gutters and 13.5rem sidebar. Desktop page padding 20px; remove the nested default header padding to avoid doubled whitespace.
 - Tables show order number/time, product/quantity, customer, amount, payment record and delivery separately. Numeric columns use tabular figures.
 - Summary is an inline bordered strip, not KPI cards; render it synchronously to avoid a placeholder/layout shift. Tabs sit at the left of the working area.
-- Destructive operations are explicit, confirmed, and domain-validated. Secrets never appear as prefilled form values. Downloads require password reconfirmation.
+- Destructive operations are explicit, confirmed, and domain-validated. Inventory card content is visible/copyable and prefilled for authorized administrators, including sold and looping cards. Configuration secrets and protected order details remain concealed. Downloads require password reconfirmation; ordinary inventory viewing/editing does not.
 
 ## Mobile
 

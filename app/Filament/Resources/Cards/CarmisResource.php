@@ -40,7 +40,8 @@ class CarmisResource extends ShopResource
     protected static function allows(string $action, ?Model $record): bool
     {
         if ($action === 'create') { return false; }
-        if (in_array($action, ['update', 'restore'], true)) {
+        if ($action === 'update') { return $record && ! $record->trashed(); }
+        if ($action === 'restore') {
             return $record && (int) $record->status === Carmis::STATUS_UNSOLD && (int) $record->is_loop === 0;
         }
         return parent::allows($action, $record);
@@ -48,18 +49,18 @@ class CarmisResource extends ShopResource
 
     public static function getEloquentQuery(): Builder
     {
-        // Do not hydrate the secret into Livewire's record or form state.
+        // Inventory content is intentionally visible inside the administrator-only panel.
         return parent::getEloquentQuery()->withoutGlobalScopes([SoftDeletingScope::class])
-            ->select(['carmis.id', 'goods_id', 'status', 'is_loop', 'carmis.created_at', 'carmis.updated_at', 'carmis.deleted_at'])
+            ->select(['carmis.id', 'goods_id', 'carmi', 'status', 'is_loop', 'carmis.created_at', 'carmis.updated_at', 'carmis.deleted_at'])
             ->with(['goods' => fn ($q) => $q->withTrashed()->select('id', 'gd_name')]);
     }
 
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
-            Textarea::make('carmi')->label('替换卡密')->rows(5)->maxLength(10000)
-                ->formatStateUsing(fn () => null)->dehydrated(fn ($state) => filled($state))
-                ->helperText('当前卡密不回显。留空保留原值；仅可修改未售出、非循环卡密。')->columnSpanFull(),
+            Textarea::make('carmi')->label('卡密内容')->rows(8)->maxLength(10000)
+                ->dehydrated(fn ($state) => filled($state))
+                ->helperText('留空保留原值。修改不会改变销售状态、已交付订单内容，也不会通知客户。循环卡密的新内容用于后续交付。')->columnSpanFull(),
         ]);
     }
 
@@ -69,7 +70,10 @@ class CarmisResource extends ShopResource
             ->columns([
                 TextColumn::make('id')->label('库存 ID')->sortable()->searchable(),
                 TextColumn::make('goods.gd_name')->label('商品')->searchable()->wrap(),
-                TextColumn::make('concealed')->label('卡密内容')->state('••••••••')->color('gray'),
+                TextColumn::make('carmi')->label('卡密内容')->limit(160)->wrap()->lineClamp(4)
+                    ->extraAttributes(['style' => 'white-space: pre-wrap; overflow-wrap: anywhere; min-width: 12rem; max-width: 28rem'])
+                    ->copyable()->copyableState(fn (Carmis $record): string => (string) $record->carmi)
+                    ->copyMessage('已复制完整卡密')->tooltip('点击复制完整内容；查看全文请用「查看」'),
                 TextColumn::make('status')->label('状态')->badge()->formatStateUsing(fn ($state) => (int) $state === 1 ? '未售出' : '已售出')
                     ->color(fn ($state) => (int) $state === 1 ? 'success' : 'gray'),
                 IconColumn::make('is_loop')->label('循环')->boolean()->trueColor('warning')->falseColor('gray'),
@@ -81,8 +85,12 @@ class CarmisResource extends ShopResource
                 SelectFilter::make('is_loop')->label('循环卡密')->options([0 => '一次性', 1 => '循环']),
                 TrashedFilter::make()->label('归档记录'),
             ])->recordActions([
-                EditAction::make()->label('替换')->using(fn (Carmis $record, array $data): Carmis => ActionFeedback::run(fn () => InventoryOperations::update($record->id, $data)))
-                    ->visible(fn (Carmis $record) => ! $record->trashed() && (int) $record->status === 1 && ! $record->is_loop),
+                Action::make('viewContent')->label('查看')->color('gray')->modalHeading('完整卡密内容')
+                    ->fillForm(fn (Carmis $record): array => ['carmi' => $record->carmi])
+                    ->schema([Textarea::make('carmi')->label('卡密内容')->readOnly()->dehydrated(false)->rows(12)])
+                    ->modalSubmitAction(false)->modalCancelActionLabel('关闭'),
+                EditAction::make()->label('编辑')->using(fn (Carmis $record, array $data): Carmis => ActionFeedback::run(fn () => InventoryOperations::update($record->id, $data)))
+                    ->visible(fn (Carmis $record) => ! $record->trashed()),
                 Action::make('download')->label('下载')->icon('heroicon-o-arrow-down-tray')->color('gray')
                     ->modalHeading('下载完整卡密')->modalDescription('下载文件包含明文卡密。请妥善保管，用完后删除。')
                     ->schema([SensitiveActions::passwordField()])->action(function (Carmis $record, array $data) {

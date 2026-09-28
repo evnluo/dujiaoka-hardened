@@ -9,11 +9,11 @@ use Illuminate\Validation\ValidationException;
 
 final class OrderOperations
 {
-    public static function fulfil(int $id, int $target, ?string $message = null): Order
+    public static function fulfil(int $id, int $target, ?string $message = null, bool $notifyCustomer = false): Order
     {
         AdminAccess::authorize();
 
-        return DB::transaction(function () use ($id, $target, $message): Order {
+        return DB::transaction(function () use ($id, $target, $message, $notifyCustomer): Order {
             $order = Order::query()->lockForUpdate()->findOrFail($id);
             if (! OrderState::canFulfil((int) $order->status, (int) $order->type) || (blank($order->trade_no) && ! OrderState::isZeroTotal($order->actual_price))) {
                 throw ValidationException::withMessages(['message' => '订单状态已变化，或没有支付交易凭证。刷新后再处理；此处不能确认支付。']);
@@ -31,9 +31,11 @@ final class OrderOperations
                 }
             }
             $order->status = $target;
-            // Publish status mail only after the state transition commits.
+            // Suppress the model's automatic OrderUpdated event for silent bookkeeping.
             Order::withoutEvents(fn () => $order->save());
-            DB::afterCommit(fn () => event(new OrderUpdated($order)));
+            if ($notifyCustomer) {
+                DB::afterCommit(fn () => event(new OrderUpdated($order)));
+            }
 
             return $order;
         });

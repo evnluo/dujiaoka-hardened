@@ -144,9 +144,10 @@ namespace {
         exit(0);
     }
 
-    function race(string $firstOperation, string $secondOperation, bool $staleSnapshot): void
+    function race(string $firstOperation, string $secondOperation, bool $staleSnapshot, int $status = 1, int $loop = 0): void
     {
         seed();
+        DB::table('carmis')->update(['status' => $status, 'is_loop' => $loop]);
         $first = worker($firstOperation, 501, true, false);
         $second = worker($secondOperation, 502, false, $staleSnapshot);
         try {
@@ -204,6 +205,10 @@ namespace {
                 check(Carmis::findOrFail(502)->carmi === 'SYNTHETIC-ORIGINAL-502', 'rejected replacement changed its original secret');
             }
             check(Carmis::count() === ($firstOperation === 'import' ? 3 : 2), 'unexpected inventory count');
+            foreach ([501, 502] as $id) {
+                $card = Carmis::findOrFail($id);
+                check((int) $card->status === $status && (int) $card->is_loop === $loop, 'replacement changed stock eligibility');
+            }
         } finally {
             $statuses = [];
             foreach ([$first, $second] as $child) {
@@ -218,10 +223,12 @@ namespace {
     }
 
     $tests = [];
-    foreach ([false, true] as $snapshot) {
-        foreach ([['update', 'update'], ['import', 'update'], ['update', 'import'], ['import', 'import']] as [$first, $second]) {
-            $name = "$first / $second" . ($snapshot ? ' with an older RR snapshot' : ' with a fresh transaction');
-            $tests[$name] = fn () => race($first, $second, $snapshot);
+    foreach ([[1, 0], [2, 0], [1, 1], [2, 1]] as [$status, $loop]) {
+        foreach ([false, true] as $snapshot) {
+            foreach ([['update', 'update'], ['import', 'update'], ['update', 'import'], ['import', 'import']] as [$first, $second]) {
+                $name = "$first / $second (status=$status, loop=$loop)" . ($snapshot ? ' with an older RR snapshot' : ' with a fresh transaction');
+                $tests[$name] = fn () => race($first, $second, $snapshot, $status, $loop);
+            }
         }
     }
     $tests['sold and archived credentials remain unavailable to imports and replacements'] = function (): void {
