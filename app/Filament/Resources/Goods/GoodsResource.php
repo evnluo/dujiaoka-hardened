@@ -7,6 +7,7 @@ use App\Filament\Resources\Cards\CarmisResource;
 use App\Filament\Support\AdminAccess;
 use App\Filament\Support\CatalogActions;
 use App\Filament\Support\OrderState;
+use App\Filament\Support\ShopRichEditor;
 use App\Models\Carmis;
 use App\Models\Goods;
 use BackedEnum;
@@ -15,7 +16,6 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\EditAction;
 use Filament\Actions\RestoreAction;
 use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -62,7 +62,7 @@ class GoodsResource extends ShopResource
                     Section::make('商品内容')->schema([
                         TextInput::make('gd_name')->label('商品名称')->required()->maxLength(200),
                         TextInput::make('gd_description')->label('简短描述')->required()->maxLength(200),
-                        RichEditor::make('description')->label('商品详情')->minHeight('8rem')->toolbarButtons(['bold', 'italic', 'bulletList', 'orderedList', 'link', 'undo', 'redo']),
+                        ShopRichEditor::make('description')->label('商品详情')->minHeight('8rem'),
                         FileUpload::make('picture')->label('商品图片')->image()->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
                             ->disk('admin')->directory('images')->visibility('public')->maxSize(4096)->preventFilePathTampering(),
                     ]),
@@ -92,7 +92,9 @@ class GoodsResource extends ShopResource
                             ->visible(fn (?Goods $record): bool => $record !== null),
                         TextEntry::make('stock_help')->label('库存说明')->hiddenLabel()->state('自动库存由未售出卡密计算。保存商品不会覆盖库存；人工库存通过「补充库存」增加。'),
                         TextInput::make('buy_limit_num')->label('单次限购')->integer()->minValue(0)->required()->default(0)->helperText('0 表示不限购。')->extraFieldWrapperAttributes(['class' => 'shop-short-field']),
-                        RichEditor::make('buy_prompt')->label('购买提示')->minHeight('6rem')->toolbarButtons(['bold', 'bulletList', 'link', 'undo', 'redo']),
+                        Toggle::make('buy_prompt_enabled')->label('显示购买提示')->default(false)
+                            ->helperText('关闭后保留内容，仍可编辑；内容为空时不会向顾客弹出提示。'),
+                        ShopRichEditor::make('buy_prompt')->label('购买提示')->minHeight('6rem'),
                         Textarea::make('other_ipu_cnf')->label('购买附加字段')->rows(3)->helperText('保持原格式：字段名=中文说明=是否必填=提示；每行一个字段，例如 account=账号=true=请输入账号。'),
                     ])->footerActions([
                         self::addStockAction(),
@@ -118,7 +120,7 @@ class GoodsResource extends ShopResource
 
     public static function addStockAction(): Action
     {
-        return Action::make('addStock')->label('补充库存')->color('gray')
+        return Action::make('addStock')->button()->outlined()->label('补充库存')->color('gray')
             ->visible(fn (?Goods $record): bool => $record !== null && ! $record->trashed() && (int) $record->type === 2)
             ->schema([TextInput::make('quantity')->label('增加人工库存')->integer()->minValue(1)->maxValue(1000000)->required()])
             ->action(function (Goods $record, array $data): void {
@@ -150,9 +152,9 @@ class GoodsResource extends ShopResource
                 TrashedFilter::make()->label('归档记录'),
             ])
             ->recordActions([
-                EditAction::make()->label('编辑')->visible(fn (Goods $record) => ! $record->trashed()),
+                EditAction::make()->button()->outlined()->label('编辑')->visible(fn (Goods $record) => ! $record->trashed()),
                 self::addStockAction(),
-                Action::make('archive')->label('归档')->color('gray')->requiresConfirmation()->visible(fn (Goods $record) => ! $record->trashed())
+                Action::make('archive')->button()->outlined()->label('归档')->color('gray')->requiresConfirmation()->visible(fn (Goods $record) => ! $record->trashed())
                     ->modalDescription('商品将从店铺移除。保留全部卡密和历史订单，可在归档筛选中恢复。')
                     ->action(function (Goods $record): void {
                         AdminAccess::authorize();
@@ -162,7 +164,7 @@ class GoodsResource extends ShopResource
                         });
                         Notification::make()->title('商品已归档，库存保留')->success()->send();
                     }),
-                RestoreAction::make()->label('恢复'),
+                RestoreAction::make()->button()->outlined()->label('恢复'),
             ])
             ->toolbarActions([BulkActionGroup::make([CatalogActions::visibility(true), CatalogActions::visibility(false)])])
             ->emptyStateHeading('暂无商品')->emptyStateDescription('先创建分类，再添加商品与库存。');

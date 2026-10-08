@@ -41,6 +41,8 @@ class GoodsService
     {
         $goods = GoodsGroup::query()
             ->with(['goods' => function($query) {
+                // Catalog JSON must not include retained prompts or raw rich HTML.
+                $query->select(['id', 'group_id', 'gd_name', 'gd_description', 'picture', 'type', 'actual_price', 'retail_price', 'in_stock', 'sales_volume', 'ord', 'wholesale_price_cnf']);
                 $query->withCount(['carmis' => function($query) {
                     $query->where('status', Carmis::STATUS_UNSOLD);
                 }])->where('is_open', Goods::STATUS_OPEN)->orderBy('ord', 'DESC');
@@ -84,6 +86,7 @@ class GoodsService
      */
     public function format(Goods $goods)
     {
+        $goods->show_buy_prompt = $goods->buy_prompt_enabled && \App\Support\PurchasePrompt::hasContent($goods->buy_prompt);
         // 格式化批发配置以及输入框配置
         $goods->wholesale_price_cnf = $goods->wholesale_price_cnf ?
             format_wholesale_price($goods->wholesale_price_cnf) :

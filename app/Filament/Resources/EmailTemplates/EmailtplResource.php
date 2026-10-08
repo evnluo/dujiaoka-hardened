@@ -47,7 +47,7 @@ class EmailtplResource extends ShopResource
             TextColumn::make('tpl_name')->label('邮件标题')->searchable()->wrap(),
             TextColumn::make('tpl_token')->label('模板标识')->searchable()->copyable(),
             TextColumn::make('updated_at')->label('更新')->dateTime('Y-m-d H:i')->sortable(),
-        ])->recordActions([EditAction::make()->using(fn (Model $record, array $data) => static::persistEdit($record, $data))->label('编辑模板')->modalWidth('5xl')])
+        ])->recordActions([EditAction::make()->button()->outlined()->using(fn (Model $record, array $data) => static::persistEdit($record, $data))->label('编辑模板')->modalWidth('5xl')])
             ->emptyStateHeading('暂无邮件模板')->emptyStateDescription('请导入店铺邮件模板，确保订单通知可以正常发送。');
     }
 

@@ -86,27 +86,27 @@ class CarmisResource extends ShopResource
                 SelectFilter::make('is_loop')->label('循环卡密')->options([0 => '一次性', 1 => '循环']),
                 TrashedFilter::make()->label('归档记录'),
             ])->recordActions([
-                Action::make('viewContent')->label('查看')->color('gray')->modalHeading('完整卡密内容')
+                Action::make('viewContent')->button()->outlined()->label('查看')->color('gray')->modalHeading('完整卡密内容')
                     ->fillForm(fn (Carmis $record): array => ['carmi' => $record->carmi])
                     ->schema([Textarea::make('carmi')->label('卡密内容')->readOnly()->dehydrated(false)->rows(12)])
                     ->modalSubmitAction(false)->modalCancelActionLabel('关闭'),
-                EditAction::make()->label('编辑')->using(fn (Carmis $record, array $data): Carmis => ActionFeedback::run(fn () => InventoryOperations::update($record->id, $data)))
+                EditAction::make()->button()->outlined()->label('编辑')->using(fn (Carmis $record, array $data): Carmis => ActionFeedback::run(fn () => InventoryOperations::update($record->id, $data)))
                     ->visible(fn (Carmis $record) => ! $record->trashed()),
-                Action::make('download')->label('下载')->icon('heroicon-o-arrow-down-tray')->color('gray')
+                Action::make('download')->button()->outlined()->label('下载')->icon('heroicon-o-arrow-down-tray')->color('gray')
                     ->modalHeading('下载完整卡密')->modalDescription('下载文件包含明文卡密。请妥善保管，用完后删除。')
                     ->schema([SensitiveActions::passwordField()])->action(function (Carmis $record, array $data) {
                         SensitiveActions::confirm($data);
                         $card = Carmis::withTrashed()->findOrFail($record->id);
                         return SensitiveActions::download('card-'.$card->id.'.txt', (string) $card->carmi);
                     }),
-                Action::make('archive')->label('归档')->color('gray')->requiresConfirmation()
+                Action::make('archive')->button()->outlined()->label('归档')->color('gray')->requiresConfirmation()
                     ->visible(fn (Carmis $record) => ! $record->trashed() && (int) $record->status === 1 && ! $record->is_loop)
                     ->modalDescription('将未售出卡密移出可销售库存，不会删除历史数据。')
                     ->action(function (Carmis $record): void {
                         ActionFeedback::run(fn () => InventoryOperations::archive([$record->id]));
                         Notification::make()->title('卡密已归档')->success()->send();
                     }),
-                RestoreAction::make()->label('恢复到库存'),
+                RestoreAction::make()->button()->outlined()->label('恢复到库存'),
             ])->maxSelectableRecords(1000)->toolbarActions([BulkActionGroup::make([
                 BulkActionGroup::make([
                     self::stockAction('markUsed', '标记已使用', Carmis::STATUS_SOLD, '从可销售库存中移出；不改动循环设置、卡密内容或历史订单。'),

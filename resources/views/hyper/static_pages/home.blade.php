@@ -7,7 +7,7 @@
                 {{ __('hyper.notice_announcement') }}
             </h4> -->
             <div class="w-full prose prose-zinc max-w-4xl prose-headings:mt-2 prose-headings:mb-0 prose-p:mt-0 prose-p:mb-2 prose-img:my-2 prose-a:text-zinc-600">
-                {!! dujiaoka_config_get('notice') !!}
+                @include('common.rich-content', ['content' => dujiaoka_config_get('notice')])
             </div>
         </div>
     </div>

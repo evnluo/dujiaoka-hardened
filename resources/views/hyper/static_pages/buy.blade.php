@@ -400,9 +400,10 @@
     <div class="p-4 sm:p-8 bg-white rounded-2xl border border-zinc-200 prose prose-zinc max-w-5xl prose-headings:mt-0 prose-headings:mb-0 prose-p:mt-0 prose-p:mb-2 prose-img:my-2 prose-img:rounded-lg prose-a:text-zinc-600 col-span-1 md:col-span-4 w-full shadow-sm">
         {{-- 商品详情 --}}
         <h5 class="text-xl font-bold !mb-4">{{ __('hyper.buy_product_desciption') }}</h5>
-        {!! $description !!}
+        @include('common.rich-content', ['content' => $description])
     </div>
 </div>
+@if($show_buy_prompt)
 <div class="modal fade" id="buy_prompt" tabindex="-1" role="dialog" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -412,11 +413,12 @@
                 <button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>
             </div>
             <div class="modal-body">
-                {!! $buy_prompt !!}
+                @include('common.rich-content', ['content' => $buy_prompt])
             </div>
         </div><!-- /.modal-content -->
     </div><!-- /.modal-dialog -->
 </div><!-- /.modal -->
+@endif
 <div class="modal fade" id="img-modal" tabindex="-1" role="dialog" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered" style="max-width: none;">
         <img id="img-zoom" style="border-radius: 5px;">
@@ -465,7 +467,7 @@
     });
 </script>
 <script>
-    @if(!empty($buy_prompt))
+    @if($show_buy_prompt)
         $('#buy_prompt').modal();
     @endif
         $(function() {

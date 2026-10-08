@@ -37,6 +37,8 @@
 .fi-in-entry-wrp-label, .fi-fo-field-wrp-label { font-size: 0.8125rem; }
 .fi-in-text { overflow-wrap: anywhere; }
 .fi-input, .fi-textarea { caret-color: #2563eb; }
+/* TipTap persists both dimensions; narrow editors must clamp proportionally too. */
+.fi-fo-rich-editor .tiptap img { max-width: 100%; height: auto !important; }
 ::selection { background: #dbeafe; color: #172554; }
 
 .shop-form { display: grid; gap: 1.25rem; max-width: 80rem; }

@@ -77,6 +77,166 @@ class FilamentAdminTest extends TestCase
         $this->get(OrderResource::getUrl())->assertForbidden();
     }
 
+    public function test_semantically_empty_purchase_prompts_have_no_modal_or_popup_in_any_template(): void
+    {
+        foreach (['hyper', 'luna', 'unicorn'] as $template) {
+            app(ShopSettings::class)->setMany(['template' => $template]);
+            foreach ([null, '   ', '<p></p>', '<p><br></p>', '<p>&nbsp;&#8203;&#65279;</p>'] as $empty) {
+                DB::table('goods')->where('id', 7)->update(['buy_prompt' => $empty, 'buy_prompt_enabled' => true]);
+                $html = app(\App\Http\Controllers\Home\HomeController::class)->buy(7)->render();
+                $this->assertStringNotContainsString(__('goods.fields.buy_prompt'), $html, $template . ': ' . $empty);
+                $this->assertStringNotContainsString('id="buy_prompt"', $html);
+                $this->assertStringNotContainsString('class="buy-prompt', $html);
+            }
+        }
+    }
+
+    public function test_purchase_prompt_toggle_saves_reloads_and_keeps_disabled_content(): void
+    {
+        Livewire::test(CreateGoods::class)->assertFormFieldExists('buy_prompt_enabled')->assertSet('data.buy_prompt_enabled', false);
+        DB::table('goods')->where('id', 7)->update(['gd_description' => 'Summary', 'buy_prompt' => '<p>Retained instructions</p>', 'buy_prompt_enabled' => true]);
+        Livewire::test(EditGoods::class, ['record' => 7])->assertSet('data.buy_prompt_enabled', true)
+            ->fillForm(['buy_prompt_enabled' => false])->call('save')->assertHasNoFormErrors();
+        $goods = \App\Models\Goods::findOrFail(7);
+        $this->assertFalse($goods->buy_prompt_enabled);
+        $this->assertStringContainsString('Retained instructions', $goods->buy_prompt);
+        Livewire::test(EditGoods::class, ['record' => 7])->assertSet('data.buy_prompt_enabled', false);
+        foreach (['hyper', 'luna', 'unicorn'] as $template) {
+            app(ShopSettings::class)->setMany(['template' => $template]);
+            $this->assertStringNotContainsString('Retained instructions', app(\App\Http\Controllers\Home\HomeController::class)->buy(7)->render());
+        }
+        Livewire::test(EditGoods::class, ['record' => 7])->fillForm(['buy_prompt_enabled' => true])->call('save')->assertHasNoFormErrors();
+        $this->assertStringContainsString('Retained instructions', app(\App\Http\Controllers\Home\HomeController::class)->buy(7)->render());
+        DB::table('goods')->where('id', 7)->update(['buy_prompt' => '<p><img src="/uploads/images/example.png" alt="Image instructions"></p>']);
+        $this->assertStringContainsString('Image instructions', app(\App\Http\Controllers\Home\HomeController::class)->buy(7)->render());
+    }
+
+    public function test_prompt_migration_backfills_legacy_rows_without_rewriting_content(): void
+    {
+        Schema::table('goods', fn ($table) => $table->dropColumn('buy_prompt_enabled'));
+        $prompts = [null, '<p>&nbsp;<br>&#8203;</p>', '<p>Legacy <strong>instructions</strong></p>', '<img src="/uploads/images/legacy.png">'];
+        foreach ($prompts as $i => $prompt) {
+            DB::table('goods')->insert(['id' => 20 + $i, 'group_id' => 1, 'gd_name' => 'Legacy', 'buy_prompt' => $prompt, 'deleted_at' => now()]);
+        }
+        $file = database_path('migrations/2026_10_08_000001_add_buy_prompt_enabled_to_goods.php');
+        $this->assertFileExists($file);
+        $migration = require $file;
+        $migration->up();
+        foreach ($prompts as $i => $prompt) {
+            $row = DB::table('goods')->where('id', 20 + $i)->first();
+            $this->assertSame($prompt, $row->buy_prompt);
+            $this->assertSame($i >= 2, (bool) $row->buy_prompt_enabled);
+        }
+        $id = DB::table('goods')->insertGetId(['group_id' => 1, 'gd_name' => 'New', 'buy_prompt' => 'Not enabled automatically']);
+        $this->assertFalse((bool) DB::table('goods')->where('id', $id)->value('buy_prompt_enabled'));
+        $migration->down();
+        $this->assertFalse(Schema::hasColumn('goods', 'buy_prompt_enabled'));
+        $this->assertSame($prompts[2], DB::table('goods')->where('id', 22)->value('buy_prompt'));
+    }
+
+    public function test_all_shop_editors_offer_persistent_image_upload_and_proportional_resize(): void
+    {
+        foreach ([[EditGoods::class, ['record' => 7], ['description', 'buy_prompt']], [Settings::class, [], ['notice']]] as [$class, $args, $fields]) {
+            $page = Livewire::test($class, $args);
+            foreach ($fields as $name) {
+                $page->assertFormFieldExists($name, function (\Filament\Forms\Components\RichEditor $field): bool {
+                    $this->assertTrue($field->hasToolbarButton('attachFiles'));
+                    $this->assertTrue($field->hasResizableImages());
+                    $this->assertSame('admin', $field->getFileAttachmentsDiskName());
+                    $this->assertSame('images/rich-content', $field->getFileAttachmentsDirectory());
+                    $this->assertSame('public', $field->getFileAttachmentsVisibility());
+                    $this->assertSame(['image/jpeg', 'image/png', 'image/webp'], $field->getFileAttachmentsAcceptedFileTypes());
+                    $this->assertSame(4096, $field->getFileAttachmentsMaxSize());
+                    $this->assertTrue($field->shouldPreventFileAttachmentPathTampering());
+                    return true;
+                });
+            }
+        }
+    }
+
+    public function test_uploaded_editor_images_keep_width_alt_and_public_urls_after_reopen(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('admin', ['url' => config('filesystems.disks.admin.url')]);
+        DB::table('goods')->where('id', 7)->update(['gd_description' => 'Summary']);
+        app(ShopSettings::class)->setMany(['title' => 'Test shop']);
+        foreach ([[EditGoods::class, ['record' => 7], 'description'], [EditGoods::class, ['record' => 7], 'buy_prompt'], [Settings::class, [], 'notice']] as [$class, $args, $field]) {
+            $upload = \Illuminate\Http\UploadedFile::fake()->image('untrusted-name.php.png', 1200, 400);
+            $page = Livewire::test($class, $args)
+                ->callAction(TestAction::make('attachFiles')->schemaComponent($field, 'form')->arguments(['editorSelection' => ['type' => 'text', 'anchor' => 1, 'head' => 1]]), data: ['file' => $upload, 'alt' => 'Wide example'])
+                ->assertHasNoActionErrors()->assertDispatched('run-rich-editor-commands');
+            $id = array_key_first($page->get("componentFileAttachments.data.$field"));
+            $page->fillForm([$field => '<p>Legacy <strong>formatting</strong></p><img data-id="'.$id.'" src="/temporary.png" alt="Wide example" width="360" height="120">'])
+                ->call('save')->assertHasNoFormErrors();
+            $html = $field === 'notice' ? app(ShopSettings::class)->get('notice') : \App\Models\Goods::find(7)->getAttribute($field);
+            $this->assertStringContainsString('width="360"', $html);
+            $this->assertStringContainsString('alt="Wide example"', $html);
+            $this->assertStringContainsString('<strong>formatting</strong>', $html);
+            $this->assertStringContainsString('/uploads/images/rich-content/', $html);
+            $this->assertStringNotContainsString('untrusted-name', $html);
+            preg_match('/data-id="([^"]+)"/', $html, $match);
+            \Illuminate\Support\Facades\Storage::disk('admin')->assertExists($match[1]);
+            Livewire::test($class, $args)->call('save')->assertHasNoFormErrors();
+            $saved = $field === 'notice' ? app(ShopSettings::class)->get('notice') : \App\Models\Goods::find(7)->getAttribute($field);
+            $this->assertSame($html, $saved);
+        }
+    }
+
+    public function test_rich_editor_rejects_unsafe_uploads_and_forged_attachment_paths(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('admin');
+        foreach ([
+            \Illuminate\Http\UploadedFile::fake()->createWithContent('script.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
+            \Illuminate\Http\UploadedFile::fake()->createWithContent('pretend.png', '<html><script>alert(1)</script></html>')->mimeType('text/html'),
+            \Illuminate\Http\UploadedFile::fake()->createWithContent('shell.php', '<?php system("id");'),
+            \Illuminate\Http\UploadedFile::fake()->image('large.jpg')->size(4097),
+        ] as $upload) {
+            $page = Livewire::test(EditGoods::class, ['record' => 7])
+                ->callAction(TestAction::make('attachFiles')->schemaComponent('description', 'form')->arguments(['editorSelection' => ['type' => 'text', 'anchor' => 1, 'head' => 1]]), data: ['file' => $upload]);
+            $this->assertTrue($page->instance()->getErrorBag()->isNotEmpty(), $upload->getClientOriginalName());
+            $page->assertHasActionErrors(['file'])->assertNotDispatched('run-rich-editor-commands');
+        }
+        foreach ([[EditGoods::class, ['record' => 7], 'description'], [Settings::class, [], 'notice']] as [$class, $args, $field]) {
+            Livewire::test($class, $args)->fillForm([$field => '<img data-id="../../private.txt" src="/uploads/private.txt">'])
+                ->call('save')->assertHasFormErrors([$field]);
+        }
+        $this->assertSame([], \Illuminate\Support\Facades\Storage::disk('admin')->allFiles());
+    }
+
+    public function test_storefront_rich_content_preserves_safe_image_width_without_executable_html(): void
+    {
+        $content = '<p>Legacy <strong>content</strong></p><img src="/uploads/images/wide.png" alt="Wide banner" style="width: 360px; height: 999px; position:fixed" onerror="evil()"><script>evil()</script><img src="javascript:evil()">';
+        DB::table('goods')->where('id', 7)->update(['description' => $content, 'buy_prompt' => $content, 'buy_prompt_enabled' => true]);
+        foreach (['hyper', 'luna', 'unicorn'] as $template) {
+            app(ShopSettings::class)->setMany(['template' => $template, 'notice' => $content]);
+            $controller = app(\App\Http\Controllers\Home\HomeController::class);
+            foreach ([$controller->buy(7)->render(), $controller->index(request())->render()] as $html) {
+                $this->assertStringNotContainsString('evil()', $html);
+                $this->assertStringNotContainsString('position:fixed', $html);
+                $this->assertStringNotContainsString('height: 999px', $html);
+                $this->assertStringContainsString('width: 360px', $html);
+                $this->assertStringContainsString('alt="Wide banner"', $html);
+                $this->assertStringContainsString('<strong>content</strong>', $html);
+                $this->assertStringContainsString('shop-rich-content', $html);
+                $this->assertStringContainsString('height: auto', $html);
+            }
+        }
+        $this->assertSame($content, \App\Models\Goods::find(7)->description);
+    }
+
+    public function test_operational_record_actions_are_bounded_native_buttons_not_links(): void
+    {
+        foreach ([ListGoods::class, ManageCards::class, ListOrders::class, ManageGroups::class, ManageCoupons::class, ManagePayments::class, ManageEmailTemplates::class] as $class) {
+            $page = Livewire::test($class);
+            foreach ($page->instance()->getTable()->getRecordActions() as $action) {
+                $this->assertTrue($action->isButton(), $class . ':' . $action->getLabel());
+                $this->assertTrue($action->isOutlined(), $class . ':' . $action->getLabel());
+            }
+        }
+        $html = Livewire::test(ListGoods::class)->html();
+        $this->assertStringContainsString('fi-btn', $html);
+        $this->assertStringNotContainsString('fi-link fi-ac-action', $html);
+    }
+
     public function test_inventory_import_skips_sold_and_archived_duplicates(): void
     {
         DB::table('carmis')->insert([

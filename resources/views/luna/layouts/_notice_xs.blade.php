@@ -6,7 +6,7 @@
               <p class="tit">{{ __('dujiaoka.site_announcement') }}:</p>
           </div>
           <div class="goods">
-              <div class="tips">{!! dujiaoka_config_get('notice') !!}</div>
+              <div class="tips">@include('common.rich-content', ['content' => dujiaoka_config_get('notice')])</div>
           </div>
       </div>
     </div>

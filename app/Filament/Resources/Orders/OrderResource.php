@@ -80,9 +80,9 @@ class OrderResource extends ShopResource
                     ->when($data['until'] ?? null, fn (Builder $q, $date) => $q->whereDate('orders.created_at', '<=', $date))),
                 TrashedFilter::make()->label('历史归档'),
             ])->recordActions([
-                ViewAction::make()->label('详情'),
-                OrderActions::processing(),
-                ActionGroup::make([OrderActions::complete(), OrderActions::fail(), OrderActions::download()])->label('更多操作'),
+                ViewAction::make()->button()->outlined()->label('详情'),
+                OrderActions::processing()->button()->outlined(),
+                ActionGroup::make([OrderActions::complete(), OrderActions::fail(), OrderActions::download()])->button()->outlined()->color('gray')->label('更多操作'),
             ])->maxSelectableRecords(1000)->toolbarActions([
                 BulkActionGroup::make([OrderActions::bulkComplete(), OrderActions::bulkFail()])->label('批量交付状态'),
             ])->emptyStateHeading('没有匹配的订单')->emptyStateDescription('可以调整筛选条件或搜索订单号、邮箱、渠道交易号。');

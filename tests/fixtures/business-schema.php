@@ -10,6 +10,7 @@ Schema::create('goods_group', function ($t): void {
 });
 Schema::create('goods', function ($t): void {
     $t->id(); $t->integer('group_id'); $t->string('gd_name');
+    $t->boolean('buy_prompt_enabled')->default(false);
     foreach (['gd_description', 'gd_keywords', 'picture', 'buy_prompt', 'description', 'wholesale_price_cnf', 'other_ipu_cnf', 'api_hook'] as $field) $t->text($field)->nullable();
     foreach (['retail_price', 'actual_price'] as $field) $t->decimal($field, 10, 2)->default(0);
     foreach (['in_stock', 'sales_volume', 'buy_limit_num'] as $field) $t->integer($field)->default(0);

@@ -3,11 +3,11 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Support\AdminAccess;
+use App\Filament\Support\ShopRichEditor;
 use App\Support\ShopSettings;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -71,7 +71,7 @@ class Settings extends Page
                         Textarea::make('description')->label('网站描述')->rows(2)->maxLength(2000),
                     ]),
                     Section::make('公告与页脚')->schema([
-                        RichEditor::make('notice')->label('店铺公告')->toolbarButtons(['bold', 'italic', 'bulletList', 'link', 'undo', 'redo']),
+                        ShopRichEditor::make('notice')->label('店铺公告'),
                         Textarea::make('footer')->label('页脚 HTML')->rows(4)->maxLength(20000),
                     ]),
                 ]),

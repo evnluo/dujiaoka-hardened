@@ -112,7 +112,7 @@ class PayResource extends ShopResource
             IconColumn::make('is_open')->label('启用')->boolean(),
             TextColumn::make('updated_at')->label('更新')->dateTime('Y-m-d H:i')->sortable(),
         ])->filters([TernaryFilter::make('is_open')->label('启用状态'), TrashedFilter::make()->label('历史归档')])
-            ->recordActions([EditAction::make()->label('配置')->using(fn (Pay $record, array $data) => ActionFeedback::run(fn () => self::saveGateway($data, $record)))])
+            ->recordActions([EditAction::make()->button()->outlined()->label('配置')->using(fn (Pay $record, array $data) => ActionFeedback::run(fn () => self::saveGateway($data, $record)))])
             ->emptyStateHeading('暂无支付渠道')->emptyStateDescription('添加易支付配置后，再启用对应渠道。');
     }
 

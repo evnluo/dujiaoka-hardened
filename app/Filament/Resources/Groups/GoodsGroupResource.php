@@ -58,8 +58,8 @@ class GoodsGroupResource extends ShopResource
             IconColumn::make('is_open')->label('显示')->boolean(),
             TextColumn::make('updated_at')->label('更新')->dateTime('Y-m-d H:i')->sortable(),
         ])->filters([TrashedFilter::make()->label('归档记录')])->recordActions([
-            EditAction::make()->using(fn (Model $record, array $data) => static::persistEdit($record, $data))->label('编辑')->visible(fn (GoodsGroup $record) => ! $record->trashed()),
-            Action::make('archive')->label('归档')->color('gray')->requiresConfirmation()
+            EditAction::make()->button()->outlined()->using(fn (Model $record, array $data) => static::persistEdit($record, $data))->label('编辑')->visible(fn (GoodsGroup $record) => ! $record->trashed()),
+            Action::make('archive')->button()->outlined()->label('归档')->color('gray')->requiresConfirmation()
                 ->visible(fn (GoodsGroup $record) => ! $record->trashed())
                 ->modalDescription('只有不含商品的分类可以归档。请先移动该分类的商品。')
                 ->action(function (GoodsGroup $record): void {
@@ -74,7 +74,7 @@ class GoodsGroupResource extends ShopResource
                     });
                     Notification::make()->title('分类已归档')->success()->send();
                 }),
-            RestoreAction::make()->label('恢复'),
+            RestoreAction::make()->button()->outlined()->label('恢复'),
         ])->toolbarActions([BulkActionGroup::make([CatalogActions::visibility(true), CatalogActions::visibility(false)])])
             ->emptyStateHeading('暂无分类')->emptyStateDescription('添加分类，便于店铺组织商品。');
     }

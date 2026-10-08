@@ -13,6 +13,8 @@ class Goods extends BaseModel
 
     protected $table = 'goods';
 
+    protected $casts = ['buy_prompt_enabled' => 'boolean'];
+
     protected $dispatchesEvents = [
         'deleted' => GoodsDeleted::class
     ];

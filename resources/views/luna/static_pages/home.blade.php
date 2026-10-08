@@ -102,7 +102,7 @@
 
     <script>
         let title    = "{{ __('dujiaoka.site_announcement') }}",
-            goodsMsg = {!! json_encode($data) !!};
+            goodsMsg = {{ \Illuminate\Support\Js::from($data) }};
     </script>
 @endsection
 

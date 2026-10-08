@@ -153,7 +153,7 @@
                                 <h5>{{ __('goods.fields.description') }}</h5>
                             </div>
                             <div class="card-body">
-                                {!! $description !!}
+                                @include('common.rich-content', ['content' => $description])
                             </div>
                         </div>
                     </div>
@@ -164,6 +164,7 @@
     </section>
     <!-- main end -->
     <!-- Modal -->
+    @if($show_buy_prompt)
     <div class="modal fade" id="staticBackdrop" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="staticBackdropLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -172,7 +173,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    {!! $buy_prompt !!}
+                    @include('common.rich-content', ['content' => $buy_prompt])
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ __('dujiaoka.close') }}</button>
@@ -181,11 +182,12 @@
         </div>
     </div>
     <!-- Modal end -->
+    @endif
 @stop
 @section('js')
 <script src="/assets/unicorn/js/bootstrap-input-spinner.js"></script>
 <script>
-            @if(!empty($buy_prompt))
+            @if($show_buy_prompt)
             var myModal = new bootstrap.Modal(document.getElementById('staticBackdrop'))
             $(function(){
                 myModal.show()

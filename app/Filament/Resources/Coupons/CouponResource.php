@@ -67,21 +67,21 @@ class CouponResource extends ShopResource
             TextColumn::make('updated_at')->label('更新')->dateTime('Y-m-d H:i')->sortable(),
         ])->filters([TernaryFilter::make('is_open')->label('启用状态'), TrashedFilter::make()->label('归档记录')])
             ->recordActions([
-                EditAction::make()->using(fn (Model $record, array $data) => static::persistEdit($record, $data))->label('编辑')->visible(fn (Coupon $record) => ! $record->trashed()),
-                Action::make('addUses')->label('增加次数')->color('gray')->visible(fn (Coupon $record) => ! $record->trashed())
+                EditAction::make()->button()->outlined()->using(fn (Model $record, array $data) => static::persistEdit($record, $data))->label('编辑')->visible(fn (Coupon $record) => ! $record->trashed()),
+                Action::make('addUses')->button()->outlined()->label('增加次数')->color('gray')->visible(fn (Coupon $record) => ! $record->trashed())
                     ->schema([TextInput::make('count')->label('增加可用次数')->integer()->minValue(1)->maxValue(1000000)->required()->default(1)])
                     ->action(function (Coupon $record, array $data): void {
                         AdminAccess::authorize();
                         Coupon::query()->whereKey($record->id)->increment('ret', (int) $data['count']);
                         Notification::make()->title('可用次数已增加')->success()->send();
                     }),
-                Action::make('archive')->label('归档')->color('gray')->requiresConfirmation()->visible(fn (Coupon $record) => ! $record->trashed())
+                Action::make('archive')->button()->outlined()->label('归档')->color('gray')->requiresConfirmation()->visible(fn (Coupon $record) => ! $record->trashed())
                     ->modalDescription('该码将无法使用，历史订单中的优惠信息保留。')
                     ->action(function (Coupon $record): void {
                         AdminAccess::authorize(); $record->delete();
                         Notification::make()->title('优惠券已归档')->success()->send();
                     }),
-                RestoreAction::make()->label('恢复'),
+                RestoreAction::make()->button()->outlined()->label('恢复'),
             ])->toolbarActions([BulkActionGroup::make([CatalogActions::visibility(true), CatalogActions::visibility(false)])])
             ->emptyStateHeading('暂无优惠券')->emptyStateDescription('创建固定金额优惠码并关联适用商品。');
     }
