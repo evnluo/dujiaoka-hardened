@@ -3,9 +3,9 @@
     <!-- main start -->
     <section class="main-container">
         <div class="container">
-            <div class="good-card">
+            <div class="good-card @if(config('turnstile.enabled')) turnstile-unicorn @endif">
                 <div class="row justify-content-center">
-                    <div class="col-12 col-md-8">
+                    <div class="col-12 {{ config('turnstile.enabled') ? 'col-lg-10 col-xl-8' : 'col-md-8' }}">
                         <div class="card mt-3">
                             <div class="row no-gutters">
                                 <div class="col-md-4">
@@ -85,7 +85,7 @@
                                                         </div>
                                                     @endif
 
-                                                    @if(dujiaoka_config_get('is_open_img_code') == \App\Models\Goods::STATUS_OPEN)
+                                                    @if(!config('turnstile.enabled') && dujiaoka_config_get('is_open_img_code') == \App\Models\Goods::STATUS_OPEN)
                                                         <div class="col-12 col-md-6">
                                                             <label for="verifyCode" class=" col-form-label">{{ __('dujiaoka.img_verify_code') }}:</label>
                                                             <div class="input-group">
@@ -131,7 +131,8 @@
                                                             </fieldset>
                                                         </div>
                                                     <div class="col-12 mt-2">
-                                                        <button type="submit" id="submit" class="btn btn-outline-primary"> <i
+                                                        @include('common.turnstile')
+                                                        <button type="submit" id="submit" class="btn btn-outline-primary" @if(config('turnstile.enabled')) disabled @endif> <i
                                                                 class="ali-icon">&#xe7d8;</i> {{ __('dujiaoka.order_now') }}</button>
                                                     </div>
                                                 </div>
@@ -194,6 +195,7 @@
             });
             @endif
             $("input[type='number']").inputSpinner();
+            @if(!config('turnstile.enabled'))
             $('#submit').click(function(){
                 if($("input[name='by_amount']").val() > {{ $in_stock }}){
                     {{-- 数量不允许大于库存 --}}
@@ -210,6 +212,7 @@
                 }
                 @endif
             });
+            @endif
 </script>
 
 @stop

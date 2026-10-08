@@ -84,9 +84,15 @@ class OrderController extends BaseController
             DB::commit();
             // 设置订单cookie
             $this->queueCookie($order->order_sn);
+            if (config('turnstile.enabled') && $request->expectsJson()) {
+                return response()->json(['redirect' => url('/bill', ['orderSN' => $order->order_sn])]);
+            }
             return redirect(url('/bill', ['orderSN' => $order->order_sn]));
         } catch (RuleValidationException $exception) {
             DB::rollBack();
+            if (config('turnstile.enabled') && $request->expectsJson()) {
+                return response()->json(['message' => $exception->getMessage()], 422);
+            }
             return $this->err($exception->getMessage());
         }
     }

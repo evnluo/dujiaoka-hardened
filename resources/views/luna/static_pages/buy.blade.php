@@ -120,16 +120,16 @@
                                     </label>
                                 </div>
                                 <div class="entry">
-                                    <span class="l-msg">{{ __('luna.buy_email') }}：</span>
+                                    <span class="l-msg">{{ config('turnstile.enabled') ? str_replace('&nbsp;', '', __('luna.buy_email')) : __('luna.buy_email') }}：</span>
                                     <label class="input">
-                                        <input type="text" name="email"
+                                        <input type="{{ config('turnstile.enabled') ? 'email' : 'text' }}" name="email"
                                                required lay-verify="required|email"
                                                placeholder="{{ __('luna.buy_email_tips') }}">
                                     </label>
                                 </div>
                                 @if(isset($open_coupon))
                                     <div class="entry">
-                                        <span class="l-msg">{{ __('luna.buy_disc') }}：</span>
+                                        <span class="l-msg">{{ config('turnstile.enabled') ? str_replace('&nbsp;', '', __('luna.buy_disc')) : __('luna.buy_disc') }}：</span>
                                         <label class="input">
                                             <input type="text" name="coupon_code"
                                                    placeholder="{{ __('luna.buy_disc_tips') }}">
@@ -218,7 +218,7 @@
                                         </label>
                                     </div>
                                 @endif
-                                @if(dujiaoka_config_get('is_open_img_code') == \App\Models\Goods::STATUS_OPEN)
+                                @if(!config('turnstile.enabled') && dujiaoka_config_get('is_open_img_code') == \App\Models\Goods::STATUS_OPEN)
                                     <div class="entry code">
                                         <span class="l-msg">{{ __('luna.buy_code') }}：</span>
                                         <label class="input">
@@ -235,7 +235,7 @@
                                         </script>
                                     </div>
                                 @endif
-                                @if(dujiaoka_config_get('is_open_geetest') == \App\Models\Goods::STATUS_OPEN)
+                                @if(!config('turnstile.enabled') && dujiaoka_config_get('is_open_geetest') == \App\Models\Goods::STATUS_OPEN)
                                     <div class="entry code">
                                         <span class="l-msg">{{ __('dujiaoka.behavior_verification') }}：</span>
                                         <span id="geetest-captcha"></span>
@@ -253,10 +253,11 @@
                                         </div>
                                     @endforeach
                                 </div>
+                                @include('common.turnstile')
                             </div>
                         </div>
                         <div class="layui-col-sm12 buy" style="text-align: center">
-                            <button lay-submit lay-filter="postOrder">
+                            <button type="submit" @if(config('turnstile.enabled')) disabled @else lay-submit lay-filter="postOrder" @endif>
                                 <span>{{ __('dujiaoka.order_now') }}</span>
                             </button>
                         </div>
@@ -337,7 +338,9 @@
 @endsection
 @section('js')
     <script src="https://cdn.bootcss.com/jquery/2.1.0/jquery.min.js"></script>
-    <script src="https://static.geetest.com/static/tools/gt.js"></script>
+    @if(!config('turnstile.enabled') && dujiaoka_config_get('is_open_geetest') == \App\Models\Goods::STATUS_OPEN)
+        <script src="https://static.geetest.com/static/tools/gt.js"></script>
+    @endif
     <link rel="stylesheet" href="/assets/luna/js/viewerjs/viewer.min.css">
     <script src="/assets/luna/js/viewerjs/viewer.min.js"></script>
     <script>
@@ -345,7 +348,6 @@
         var buyPrompt = $(".buy-prompt").html();
         if ($.trim(buyPrompt)) window.tipsMsg("{{ __('goods.fields.buy_prompt') }}", buyPrompt);
         @endif
-        gtWidth = window.clientWidth <= 767 ? '100%' : '312px';
         layui.use(['form'], function () {
             var form = layui.form;
             form.verify({
@@ -354,7 +356,8 @@
                     if (value > stock) return "{{ __('dujiaoka.prompt.inventory_shortage') }}"
                 }
             })
-            @if(dujiaoka_config_get('is_open_geetest') == \App\Models\Goods::STATUS_OPEN )
+            @if(!config('turnstile.enabled') && dujiaoka_config_get('is_open_geetest') == \App\Models\Goods::STATUS_OPEN )
+                var gtWidth = window.clientWidth <= 767 ? '100%' : '312px';
                 !function (url) {
                 var handlerEmbed = function (captchaObj) {
                     form.on('submit(postOrder)', function (data) {
@@ -394,6 +397,7 @@
                 });
             }('/check-geetest');
             @endif
+            @if(!config('turnstile.enabled'))
             form.on('submit(postOrder)', function (data) {
                 if (data.field.payway == null) {
                     layer.msg("{{ __('dujiaoka.prompt.please_select_mode_of_payment') }}", {
@@ -403,6 +407,7 @@
                 }
                 return true;
             });
+            @endif
             new Viewer(document.querySelector('.viewer-pictures'), {
                 url    : 'data-original',
                 toolbar: false,

@@ -1,6 +1,6 @@
 @extends('hyper.layouts.seo')
 @section('content')
-<div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+<div class="grid grid-cols-1 md:grid-cols-6 gap-4 @if(config('turnstile.enabled')) turnstile-buy-grid @endif">
     <div class="buy-shop hyper-sm-last col-span-1 md:col-span-2">
         <div class="px-4 py-8 sticky ">
             <form id="buy-form" action="{{ url('create-order') }}" method="post">
@@ -88,7 +88,7 @@
                     <input type="hidden" name="gid" value="{{ $id }}">
                     {{-- 接收卡密或通知 --}}
                     <input type="email" 
-                           name="email" 
+                           name="email" @if(config('turnstile.enabled')) required @endif
                            class="w-full px-3 py-2 bg-white border border-zinc-300 rounded-md text-sm focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500" 
                            placeholder="{{ __('hyper.buy_input_account') }}">
                 </div>
@@ -293,7 +293,7 @@
                     <div class="buy-title mb-2">{{ __('hyper.buy_search_password') }}</div>
                     {{-- 查询订单密码 --}}
                     <input type="text" 
-                           name="search_pwd" 
+                           name="search_pwd" @if(config('turnstile.enabled')) required @endif
                            class="w-full px-3 py-2 bg-white border border-zinc-300 rounded-md text-sm focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500" 
                            placeholder="{{ __('hyper.buy_input_search_password') }}">
                 </div>
@@ -327,7 +327,7 @@
                         </div>
                     @endforeach
                 @endif
-                @if(dujiaoka_config_get('is_open_geetest') == \App\Models\Goods::STATUS_OPEN )
+                @if(!config('turnstile.enabled') && dujiaoka_config_get('is_open_geetest') == \App\Models\Goods::STATUS_OPEN )
                     <div class="form-group">
                         {{-- 极验证 --}}
                         <div class="buy-title mb-2">{{ __('hyper.buy_behavior_verification') }}</div>
@@ -335,7 +335,7 @@
                         <p id="wait-geetest-captcha" class="show text-zinc-500 text-sm">loading...</p>
                     </div>
                 @endif
-                @if(dujiaoka_config_get('is_open_img_code') == \App\Models\Goods::STATUS_OPEN)
+                @if(!config('turnstile.enabled') && dujiaoka_config_get('is_open_img_code') == \App\Models\Goods::STATUS_OPEN)
                     <div class="form-group">
                         {{-- 图形验证码 --}}
                         <div class="buy-title mb-2">{{ __('hyper.buy_verify_code') }}</div>
@@ -382,11 +382,12 @@
                         </div>
                     </div>
                 </div>
+                @include('common.turnstile')
                 <div class="mt-8">
                     {{-- 提交订单 --}}
                     <button type="submit" 
                             class="w-full px-6 py-3 bg-zinc-800 text-white rounded-full hover:bg-zinc-900 transition-colors flex items-center justify-center gap-2 text-base font-medium" 
-                            id="submit">
+                            id="submit" @if(config('turnstile.enabled')) disabled @endif>
                         {{ __('hyper.buy_order_now') }}
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-arrow-right"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="m12 16 4-4-4-4"/></svg>
                     </button>
@@ -426,6 +427,7 @@
 </div><!-- /.modal -->
 @stop
 @section('js')
+@if(!config('turnstile.enabled'))
 <script>
     $('#submit').click(function(){
         if($("input[name='email']").val() == ''){
@@ -457,7 +459,7 @@
             return false;
         }
         @endif
-        @if(dujiaoka_config_get('is_open_img_code') == \App\Models\Goods::STATUS_OPEN)
+        @if(!config('turnstile.enabled') && dujiaoka_config_get('is_open_img_code') == \App\Models\Goods::STATUS_OPEN)
         if($("input[name='img_verify_code']").val() == ''){
             {{-- 验证码不能为空 --}}
             $.NotificationApp.send("{{ __('hyper.buy_warning') }}","{{ __('hyper.buy_empty_captcha') }}","top-center","rgba(0,0,0,0.2)","info");
@@ -466,6 +468,7 @@
         @endif
     });
 </script>
+@endif
 <script>
     @if($show_buy_prompt)
         $('#buy_prompt').modal();
@@ -511,7 +514,7 @@
         });
     });
 </script>
-@if(dujiaoka_config_get('is_open_geetest') == \App\Models\Goods::STATUS_OPEN )
+@if(!config('turnstile.enabled') && dujiaoka_config_get('is_open_geetest') == \App\Models\Goods::STATUS_OPEN )
 <script src="https://static.geetest.com/static/tools/gt.js"></script>
 <script>
     var geetest = function(url) {

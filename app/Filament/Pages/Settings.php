@@ -79,12 +79,18 @@ class Settings extends Page
                     Section::make('订单')->columns(2)->schema([
                         TextInput::make('manage_email')->label('管理员通知邮箱')->email()->maxLength(200),
                         TextInput::make('order_expire_time')->label('待支付有效期（分钟）')->integer()->required()->minValue(1)->maxValue(1440),
-                        Toggle::make('is_open_img_code')->label('下单图片验证码'),
+                        Toggle::make('is_open_img_code')->label('下单图片验证码')->visible(fn () => !config('turnstile.enabled')),
                         Toggle::make('is_open_search_pwd')->label('要求订单查询密码'),
                         Toggle::make('is_open_anti_red')->label('开启防红跳转'),
                         Toggle::make('is_open_google_translate')->label('显示 Google 翻译'),
                     ]),
-                    Section::make('极验')->description('启用前请确认服务与凭证可用；图片验证码可独立配置。')->columns(2)->schema([
+                    Section::make('Cloudflare Turnstile')->description(fn () => config('turnstile.enabled')
+                        ? (app(\App\Support\Turnstile::class)->configured()
+                            ? '已启用 · 下单使用完整可见的安全验证，不再显示图片验证码或极验。'
+                            : '配置不完整 · 下单已阻止，请修复服务器配置；不会回退到旧验证码。')
+                        : '未启用 · 当前使用下方明确配置的旧验证码。')
+                        ->schema([\Filament\Schemas\Components\Text::make('由服务器环境配置 TURNSTILE_ENABLED、TURNSTILE_SITE_KEY、TURNSTILE_SECRET_KEY 和 TURNSTILE_HOSTNAME。密钥不加载到后台页面；启用前须核对域名与可见模式。')]),
+                    Section::make('极验')->visible(fn () => !config('turnstile.enabled'))->description('仅在服务器未启用 Turnstile 时使用；图片验证码可独立配置。')->columns(2)->schema([
                         Toggle::make('is_open_geetest')->label('启用极验')->columnSpanFull(),
                         TextInput::make('geetest_id')->label('极验 ID')->maxLength(200),
                         self::secret('geetest_key', '极验密钥'),
@@ -129,6 +135,10 @@ class Settings extends Page
         $values = Arr::only($this->form->getState(), [...self::PUBLIC_FIELDS, ...self::SECRETS]);
         foreach (self::SECRETS as $key) {
             if (blank($values[$key] ?? null)) { unset($values[$key]); }
+        }
+        if (config('turnstile.enabled')) {
+            // Preserve dormant legacy configuration, even if a client forges hidden state.
+            $values = Arr::except($values, ['is_open_img_code', 'is_open_geetest', 'geetest_id', 'geetest_key']);
         }
         app(ShopSettings::class)->setMany($values);
         $this->data = [];

@@ -69,6 +69,22 @@ class FilamentAdminTest extends TestCase
         Livewire::test(EditGoods::class, ['record' => 7])->assertOk();
     }
 
+    public function test_turnstile_settings_show_server_status_without_obsolete_toggles_or_secrets(): void
+    {
+        config(['turnstile.enabled' => true, 'turnstile.site_key' => '1x00000000000000000000AA', 'turnstile.secret_key' => 'SYNTHETIC-TURNSTILE-SECRET', 'turnstile.hostname' => 'localhost']);
+        app(ShopSettings::class)->setMany(['title' => 'Test shop', 'is_open_img_code' => 1, 'is_open_geetest' => 1]);
+        $screen = Livewire::test(Settings::class)->assertSee('Cloudflare Turnstile')->assertSee('已启用')
+            ->assertDontSee('SYNTHETIC-TURNSTILE-SECRET')->assertDontSee('下单图片验证码')->assertDontSee('启用极验');
+        $screen->call('$refresh')->assertDontSee('SYNTHETIC-TURNSTILE-SECRET');
+        $screen->fillForm(['title' => 'Changed title'])->call('save')->assertHasNoFormErrors();
+        $this->assertSame(1, app(ShopSettings::class)->get('is_open_img_code'));
+        $this->assertSame(1, app(ShopSettings::class)->get('is_open_geetest'));
+        $this->assertArrayNotHasKey('turnstile_secret_key', $screen->get('data'));
+        $this->assertStringNotContainsString('SYNTHETIC-TURNSTILE-SECRET', json_encode($screen->snapshot));
+        config(['turnstile.secret_key' => '']);
+        Livewire::test(Settings::class)->assertSee('配置不完整')->assertDontSee('下单图片验证码');
+    }
+
     public function test_administrator_role_is_required_on_direct_routes(): void
     {
         DB::table('admin_role_users')->delete();

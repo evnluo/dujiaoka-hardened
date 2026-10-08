@@ -57,13 +57,19 @@ class OrderService
      */
     public function validatorCreateOrder(Request $request): void
     {
+        if (config('turnstile.enabled') && !$request->filled('cf-turnstile-response')) {
+            throw new RuleValidationException(__('checkout.required'));
+        }
+        if (config('turnstile.enabled') && !app(\App\Support\Turnstile::class)->validate($request->input('cf-turnstile-response'))) {
+            throw new RuleValidationException(__('checkout.failed'));
+        }
         $validator = Validator::make($request->all(), [
             'gid' => ['required', 'integer', 'min:1'],
             'email' => ['required', 'email'],
             'payway' => ['required', 'integer', \Illuminate\Validation\Rule::exists('pays', 'id')->where('is_open', 1)->where('pay_handleroute', '/pay/yipay')->whereNull('deleted_at')],
             'search_pwd' => [\Illuminate\Validation\Rule::requiredIf((bool) dujiaoka_config_get('is_open_search_pwd', false)), 'nullable', 'string', new SearchPwd()],
             'by_amount' => ['required', 'integer', 'min:1'],
-            'img_verify_code' => [\Illuminate\Validation\Rule::requiredIf((bool) dujiaoka_config_get('is_open_img_code', false)), 'nullable', 'string', new VerifyImg()],
+            'img_verify_code' => config('turnstile.enabled') ? ['exclude'] : [\Illuminate\Validation\Rule::requiredIf((bool) dujiaoka_config_get('is_open_img_code', false)), 'nullable', 'string', new VerifyImg()],
         ], [
             'by_amount.required' =>  __('dujiaoka.prompt.buy_amount_format_error'),
             'by_amount.integer' =>  __('dujiaoka.prompt.buy_amount_format_error'),
@@ -79,7 +85,7 @@ class OrderService
         }
         // 极验验证
         if (
-            dujiaoka_config_get('is_open_geetest') == BaseModel::STATUS_OPEN
+            !config('turnstile.enabled') && dujiaoka_config_get('is_open_geetest') == BaseModel::STATUS_OPEN
             &&
 !app(\App\Support\GeetestCaptcha::class)->validate($request)
 

@@ -25,6 +25,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+      - name: Verify checkout widget lifecycle and field retention
+        run: node --test tests/turnstile-checkout.test.mjs
       - name: Build isolated security test image on native architecture
         run: docker build --target security-test --build-arg VCS_REF=${{ github.sha }} -t dujiaoka-security-test .
       - name: Verify runtime and extension requirements
