@@ -5,8 +5,8 @@ namespace Tests\Feature;
 use App\Http\Controllers\Home\HomeController;
 use App\Models\Goods;
 use App\Support\ShopSettings;
-use DOMDocument;
-use DOMXPath;
+use Dom\HTMLDocument;
+use Dom\XPath;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -116,13 +116,10 @@ final class TurnstileViewTest extends TestCase
         return app(HomeController::class)->buy(7)->render();
     }
 
-    private function dom(string $html): DOMXPath
+    private function dom(string $html): XPath
     {
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $document->loadHTML($html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        return new DOMXPath($document);
+        // Use browser HTML5 tree construction, not libxml's version-dependent HTML4 form repair.
+        $document = HTMLDocument::createFromString($html, LIBXML_NOERROR | \Dom\HTML_NO_DEFAULT_NS);
+        return new XPath($document);
     }
 }
