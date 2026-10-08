@@ -10,7 +10,7 @@ final class BackendRegressionTest extends TestCase
 {
     public static function suites(): array
     {
-        return [['dependency-contract.php'], ['security.php'], ['backend.php']];
+        return [['dependency-contract.php'], ['security.php'], ['backend.php'], ['checkout-signature.php']];
     }
 
     #[DataProvider('suites')]

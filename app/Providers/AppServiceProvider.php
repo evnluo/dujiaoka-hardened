@@ -9,6 +9,7 @@ use App\Service\GoodsService;
 use App\Service\OrderProcessService;
 use App\Service\OrderService;
 use App\Service\PayService;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Jenssegers\Agent\Agent;
 
@@ -55,6 +56,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-
+        // TLS may terminate before the last HTTP proxy. Generate HTTPS before
+        // payment signing so downstream HTML URL rewrites cannot break signatures.
+        if (parse_url(config('app.url'), PHP_URL_SCHEME) === 'https') {
+            URL::forceScheme('https');
+        }
     }
 }
