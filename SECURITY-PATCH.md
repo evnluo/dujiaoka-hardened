@@ -5,9 +5,9 @@ This fork preserves the Oknice storefront customizations and patches the legacy 
 ## Scope
 
 - Require string-shaped callback fields, an MD5 signature of the expected shape, constant-time signature comparison, and successful trade status.
-- Bind merchant ID, payment method, and signed product name to the stored order/gateway. Only enabled Yipay gateways are accepted.
+- Bind merchant order ID, merchant ID and payment method to the stored order/gateway. The bounded nonempty product `name` is descriptive metadata, included unchanged in signature verification; it is not an order identifier. Only enabled Yipay gateways are accepted.
 - Reject malformed/sub-cent amounts and validate the amount against the locked order before delivering.
-- Lock the order and selected stock rows inside the transaction. A retry with the same amount and provider transaction acknowledges an already-paid order without repeating fulfilment.
+- Serialize settlement with a database-scoped MariaDB/MySQL advisory mutex before opening a fresh transaction; reject provider trades already bound to another order, including archived orders and other payment-channel rows. Lock the order, product and selected stock rows inside the transaction. A retry with the same amount and provider transaction acknowledges an already-paid order without repeating fulfilment.
 - Expiration uses an atomic prior-state condition; a lost expiration/payment race does not return a coupon or overwrite paid status.
 - Fulfilment collects mail and model events locally and submits them only after commit. Rollback/commit failure submits no delivery. Ambient transactions are rejected to avoid an early dispatch before an outer commit.
 - The image serves PHP only through Laravel's `index.php`; uploaded PHP files cannot execute via Nginx. Hidden files are denied.
@@ -42,6 +42,14 @@ The build context admits application source, bootstrap/config/routes/database so
 5. Recreate only the application service (`docker compose up -d --no-deps faka`). Verify PHP workers, storefront, effective code hashes, image revision/digest, and mount list. Do not submit synthetic payment callbacks against production.
 6. Before the Filament cutover, briefly place the old app in maintenance, stop its worker gracefully, and require an empty queue. Export legacy Redis settings into a protected host-local JSON backup; import explicitly with `php artisan shop:import-settings --from-json=/protected/path.json` into the existing `admin_settings` table. No schema migrations or shared cache flushes are needed. Verify settings match and admin/storefront render before reopening.
 7. Roll back by restoring the saved Compose file and recreating only `faka`; preserve Redis settings and business rows. Never restore an old database over newly accepted orders. A newly imported canonical settings row is additive; audit it before attempting a second cutover.
+
+## Explicit DuluPay recovery
+
+Server operators may use `php artisan payment:reconcile-dulupay ORDER --trade=PROVIDER_TRADE --actor=OPERATOR_LABEL --execute` after independently verifying the payment, inspecting prior delivery/history, and taking a fresh protected backup with workers quiescent. Never pass credentials or card contents on the command line. There is no public recovery route or periodic checker.
+
+The command re-queries the fixed official HTTPS DuluPay V1 endpoint, with redirects disabled and bounded timeouts, under the same order lock used for settlement. It checks success, merchant, order, provider trade, payment method and exact decimal amount. Only expired automatic orders with positive quantity, no coupon association/discount/return marker, and empty trade/delivery fields may be newly recovered. Other states fail closed; exact already-paid retries do not allocate or notify again. Coupon orders remain excluded because coupon return is asynchronous. Stock shortage records the verified payment as abnormal without inventing a delivery or sending a delivery email. Normal expired callbacks remain rejected.
+
+The low-volume shop intentionally uses one database-wide settlement mutex (15-second acquisition timeout) rather than a new trade-claim schema. An explicit recovery query can hold it for up to its 10-second HTTP timeout. Rejection logs contain only a bounded reason code and hashed order reference; recovery audit records the operator label and resulting status. A successful command means committed fulfilment and successful notification enqueueing, not proof of customer inbox delivery. If it fails, inspect current state before retrying: post-commit notification failure must never be repaired by resetting a paid order.
 
 ## Known limitations
 
