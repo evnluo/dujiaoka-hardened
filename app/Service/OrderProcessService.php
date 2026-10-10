@@ -385,18 +385,41 @@ class OrderProcessService
      */
     public function completedOrder(string $orderSN, float $actualPrice, string $tradeNo = '')
     {
+        return $this->settleOrder($orderSN, $actualPrice, $tradeNo);
+    }
+
+    /** Operator-only recovery: no callback route can opt into this transition. */
+    public function reconcileDuluPayOrder(string $orderSN, string $tradeNo, string $actor): Order
+    {
+        if (!preg_match('/\A[A-Za-z0-9._-]{1,80}\z/D', $actor)
+            || !preg_match('/\A[A-Za-z0-9_-]{1,200}\z/D', $tradeNo)) {
+            throw new RuleValidationException('reconciliation_invalid_arguments');
+        }
+        return $this->settleOrder($orderSN, null, $tradeNo, $actor);
+    }
+
+    private function settleOrder(string $orderSN, ?float $actualPrice, string $tradeNo, ?string $actor = null): Order
+    {
         if (DB::transactionLevel() !== 0) {
             throw new RuleValidationException('Order fulfilment cannot run inside an existing database transaction.');
         }
 
         $transactionCommitted = false;
         $deferredDispatches = [];
-        DB::beginTransaction();
+        $paymentLock = $this->orderService->acquirePaymentLock();
         try {
+            DB::beginTransaction();
             // 在事务中锁定订单，串行化同一订单的并发支付通知。
             $order = $this->orderService->detailOrderSNForUpdate($orderSN);
             if (!$order) {
                 throw new \Exception(__('dujiaoka.prompt.order_does_not_exist'));
+            }
+            $this->orderService->assertTradeAvailable($orderSN, $tradeNo);
+            if ($actor !== null) {
+                // Bounded provider query under the same order lock as expiration and
+                // fulfilment: the verified identity cannot change before settlement.
+                app(DuluPayPaymentVerifier::class)->assertPaid($order, $tradeNo);
+                $actualPrice = $order->actual_price;
             }
             // 已支付状态的重复通知只有在金额和第三方订单号完全一致时才幂等确认。
             if ((int) $order->status !== Order::STATUS_WAIT_PAY) {
@@ -416,7 +439,16 @@ class OrderProcessService
                     DB::commit();
                     return $order;
                 }
-                throw new \Exception(__('dujiaoka.prompt.order_status_completed'));
+                if ($actor === null || (int) $order->status !== Order::STATUS_EXPIRED
+                    || (int) $order->type !== Order::AUTOMATIC_DELIVERY
+                    || (int) $order->buy_amount < 1
+                    || !empty($order->coupon_id) || (int) $order->coupon_ret_back !== 0
+                    || bccomp($order->coupon_discount_price ?? '0', '0', 2) !== 0
+                    || (string) $order->trade_no !== '' || (string) $order->info !== '') {
+                    throw new \Exception(__('dujiaoka.prompt.order_status_completed'));
+                }
+            } elseif ($actor !== null) {
+                throw new RuleValidationException('reconciliation_requires_expired_order');
             }
             $bccomp = bccomp($order->actual_price, $actualPrice, 2);
             // 金额不一致
@@ -436,6 +468,12 @@ class OrderProcessService
             $this->goodsService->salesVolumeIncr($order->goods_id, $order->buy_amount);
             DB::commit();
             $transactionCommitted = true;
+            if ($actor !== null) {
+                \Illuminate\Support\Facades\Log::notice('payment_reconciled', [
+                    'actor' => $actor, 'order_hash' => hash('sha256', $orderSN),
+                    'status' => (int) $completedOrder->status,
+                ]);
+            }
             $this->dispatchDeferred($deferredDispatches);
             // 如果开启了server酱
             if (dujiaoka_config_get('is_open_server_jiang', 0) == BaseModel::STATUS_OPEN) {
@@ -461,6 +499,8 @@ class OrderProcessService
                 DB::rollBack();
             }
             throw new RuleValidationException($exception->getMessage(), 400, $exception);
+        } finally {
+            $this->orderService->releasePaymentLock($paymentLock);
         }
     }
 

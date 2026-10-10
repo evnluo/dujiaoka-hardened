@@ -61,33 +61,32 @@ class YipayController extends PayController
     {
         $data = $request->all();
         if (!$this->hasValidCallbackShape($data)) {
-            return 'fail';
+            return $this->rejectCallback('shape');
         }
         $order = $this->orderService->detailOrderSN($data['out_trade_no']);
         if (!$order) {
-            return 'fail';
+            return $this->rejectCallback('order_missing', $data['out_trade_no']);
         }
-        if (!hash_equals((string) $order->order_sn, $data['name'])) {
-            return 'fail';
-        }
+        // DuluPay name is signed descriptive metadata, not the merchant order ID.
+        // Keep the received value unchanged in the canonical signature below.
         $payGateway = $this->payService->detail($order->pay_id);
         if (!$payGateway) {
-            return 'fail';
+            return $this->rejectCallback('gateway_missing', $data['out_trade_no']);
         }
         if (
             $payGateway->pay_handleroute !== '/pay/yipay'
             || (int) $payGateway->is_open !== BaseModel::STATUS_OPEN
         ) {
-            return 'fail';
+            return $this->rejectCallback('gateway_disabled', $data['out_trade_no']);
         }
         if (!isset($data['pid']) || !is_string($data['pid']) || !hash_equals((string) $payGateway->merchant_id, $data['pid'])) {
-            return 'fail';
+            return $this->rejectCallback('merchant', $data['out_trade_no']);
         }
         if (!isset($data['type']) || !is_string($data['type']) || !hash_equals((string) $payGateway->pay_check, $data['type'])) {
-            return 'fail';
+            return $this->rejectCallback('method', $data['out_trade_no']);
         }
         if (!isset($data['trade_status']) || $data['trade_status'] !== 'TRADE_SUCCESS') {
-            return 'fail';
+            return $this->rejectCallback('unpaid', $data['out_trade_no']);
         }
         ksort($data); //重新排序$data数组
         reset($data); //内部指针指向数组中的第一个元素
@@ -110,17 +109,27 @@ class YipayController extends PayController
             || !preg_match('/\A[0-9a-fA-F]{32}\z/D', $data['sign'])
             || !hash_equals($expectedSign, strtolower($data['sign']))
         ) { //不合法的数据
-            return 'fail';  //返回失败 继续补单
+            return $this->rejectCallback('signature', $data['out_trade_no']);
         } else {
             //合法的数据
             //业务处理
             try {
                 $this->orderProcessService->completedOrder($data['out_trade_no'], (float) $data['money'], $data['trade_no']);
             } catch (RuleValidationException $exception) {
-                return 'fail';
+                return $this->rejectCallback('fulfilment', $data['out_trade_no']);
             }
             return 'success';
         }
+    }
+
+    private function rejectCallback(string $reason, string $orderSN = ''): string
+    {
+        if (app()->bound('log')) {
+            \Illuminate\Support\Facades\Log::warning('payment_callback_rejected', [
+                'reason' => $reason, 'order_hash' => hash('sha256', $orderSN),
+            ]);
+        }
+        return 'fail';
     }
 
     private function hasValidCallbackShape(array $data): bool

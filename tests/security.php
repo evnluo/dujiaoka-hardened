@@ -310,6 +310,9 @@ final class FakeEventDispatcher implements EventDispatcherContract
 
 final class FakeLockedOrderService
 {
+    public function acquirePaymentLock(): ?string { return null; }
+    public function releasePaymentLock(?string $name): void {}
+    public function assertTradeAvailable(string $orderSN, string $tradeNo): void {}
     /** @var TestOrderRecord */
     public $order;
     public $lockedLookups = 0;
@@ -693,16 +696,16 @@ $tests['Yipay rejects unsupported signature types'] = function (): void {
     assertSameValue(0, count($process->calls), 'unsupported signature type must not fulfil an order');
 };
 
-$tests['Yipay rejects a callback whose signed product name is not the order number'] = function (): void {
+$tests['Yipay accepts signed descriptive product metadata independent of order identity'] = function (): void {
     [$controller, $process, $secret] = makeYipaySubject();
     $data = validYipayCallback($secret);
-    $data['name'] = 'DIFFERENT-ORDER';
+    $data['name'] = 'Synthetic product';
     $data['sign'] = yipaySignature($data, $secret);
 
     $response = $controller->notifyUrl(Request::create('/pay/yipay/notify_url', 'POST', $data));
 
-    assertSameValue('fail', $response, 'signed callback name must remain bound to the order');
-    assertSameValue(0, count($process->calls), 'mismatched callback name must not fulfil an order');
+    assertSameValue('success', $response, 'signed descriptive name must not override out_trade_no identity');
+    assertSameValue(1, count($process->calls), 'authenticated callback must reach fulfilment');
 };
 
 $tests['Yipay accepts one valid signed callback and passes its bound values to fulfilment'] = function (): void {

@@ -20,6 +20,7 @@ use App\Rules\SearchPwd;
 use App\Rules\VerifyImg;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 
 class OrderService
 {
@@ -232,6 +233,33 @@ class OrderService
             ->where('order_sn', $orderSN)
             ->lockForUpdate()
             ->first();
+    }
+
+    /** Serialize trade claims across orders/channels before opening a transaction.
+     * A database-wide mutex avoids collation/empty-gap races without a schema change.
+     * SQLite already serializes writers; production is MySQL/MariaDB.
+     */
+    public function acquirePaymentLock(): ?string
+    {
+        if (DB::connection()->getDriverName() === 'sqlite') return null;
+        $name = 'payment:'.substr(hash('sha256', DB::connection()->getDatabaseName()), 0, 48);
+        if ((int) DB::selectOne('SELECT GET_LOCK(?, 15) AS acquired', [$name])->acquired !== 1) {
+            throw new RuleValidationException('payment_lock_unavailable');
+        }
+        return $name;
+    }
+
+    public function releasePaymentLock(?string $name): void
+    {
+        if ($name !== null) DB::selectOne('SELECT RELEASE_LOCK(?) AS released', [$name]);
+    }
+
+    public function assertTradeAvailable(string $orderSN, string $tradeNo): void
+    {
+        if ($tradeNo !== '' && Order::withTrashed()->where('trade_no', $tradeNo)
+            ->where('order_sn', '!=', $orderSN)->lockForUpdate()->first()) {
+            throw new RuleValidationException('payment_trade_already_bound');
+        }
     }
 
     /**
