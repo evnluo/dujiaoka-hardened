@@ -15,6 +15,14 @@ Schema::create('admin_roles', function ($t) { $t->id(); $t->string('slug'); });
 Schema::create('admin_role_users', function ($t) { $t->integer('user_id'); $t->integer('role_id'); });
 Schema::create('admin_settings', function ($t) { $t->string('slug')->primary(); $t->text('value'); $t->timestamps(); });
 foreach (glob(__DIR__.'/../database/migrations/*create_shop_*.php') as $file) (require $file)->up();
+foreach (['shop_mcp_tokens' => ['expires_at', 'revoked_at', 'created_at'], 'shop_mcp_previews' => ['expires_at', 'created_at'], 'shop_mcp_audit' => ['created_at']] as $table => $columns) {
+    foreach ($columns as $column) {
+        $definition = DB::table('information_schema.COLUMNS')->where('TABLE_SCHEMA', DB::connection()->getDatabaseName())->where('TABLE_NAME', $table)->where('COLUMN_NAME', $column)->first();
+        if (! $definition || strtolower($definition->DATA_TYPE) !== 'datetime' || str_contains(strtolower($definition->EXTRA), 'on update')) {
+            fwrite(STDERR, "MCP dates must not inherit automatic timestamp mutation\n"); exit(1);
+        }
+    }
+}
 $admin = App\Models\AdminUser::create(['username' => 'sdk-admin', 'name' => 'Synthetic SDK', 'password' => 'synthetic-password']);
 DB::table('admin_roles')->insert(['id' => 1, 'slug' => 'administrator']);
 DB::table('admin_role_users')->insert(['user_id' => $admin->id, 'role_id' => 1]);

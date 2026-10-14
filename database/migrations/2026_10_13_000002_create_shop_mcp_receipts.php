@@ -10,7 +10,7 @@ return new class extends Migration {
         Schema::create('shop_mcp_previews', function (Blueprint $t): void {
             $t->char('token_hash', 64)->primary(); $t->unsignedBigInteger('admin_id'); $t->unsignedBigInteger('token_id');
             $t->string('operation', 80); $t->string('scope', 40); $t->char('payload_hash', 64); $t->char('state_hash', 64);
-            $t->timestamp('expires_at')->index(); $t->timestamp('created_at');
+            $t->dateTime('expires_at')->index(); $t->dateTime('created_at');
         });
         Schema::create('shop_mcp_receipts', function (Blueprint $t): void {
             $t->id(); $t->char('binding', 64)->unique(); $t->unsignedBigInteger('admin_id'); $t->unsignedBigInteger('token_id');
@@ -20,7 +20,7 @@ return new class extends Migration {
         Schema::create('shop_mcp_audit', function (Blueprint $t): void {
             $t->id(); $t->unsignedBigInteger('admin_id'); $t->unsignedBigInteger('token_id'); $t->string('operation', 80);
             $t->string('scope', 40); $t->string('status', 40); $t->unsignedBigInteger('receipt_id')->nullable();
-            $t->string('reason_code', 80)->nullable(); $t->timestamp('created_at')->index();
+            $t->string('reason_code', 80)->nullable(); $t->dateTime('created_at')->index();
             $t->text('targets')->nullable(); $t->char('payload_hash', 64)->nullable();
         });
     }

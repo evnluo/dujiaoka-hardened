@@ -10,7 +10,8 @@ return new class extends Migration {
         Schema::create('shop_mcp_tokens', function (Blueprint $t): void {
             $t->id(); $t->unsignedBigInteger('admin_id')->index(); $t->string('name', 100);
             $t->char('token_hash', 64)->unique(); $t->text('scopes');
-            $t->timestamp('expires_at'); $t->timestamp('revoked_at')->nullable(); $t->timestamp('created_at');
+            // DATETIME avoids legacy MariaDB's implicit TIMESTAMP defaults/ON UPDATE.
+            $t->dateTime('expires_at'); $t->dateTime('revoked_at')->nullable(); $t->dateTime('created_at');
         });
     }
     public function down(): void { Schema::dropIfExists('shop_mcp_tokens'); }
