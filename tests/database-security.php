@@ -1,6 +1,6 @@
 <?php
 // Synthetic fixtures only; refuses every database except the isolated test service.
-require '/dujiaoka/vendor/autoload.php';
+require __DIR__.'/../vendor/autoload.php';
 use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Support\Facades\Facade;
@@ -15,7 +15,7 @@ if (getenv('DB_HOST') !== 'dujiaoka-security-db' || getenv('DB_DATABASE') !== 'd
 }
 $app = new Container(); Container::setInstance($app);
 $db = new Capsule($app);
-$db->addConnection(['driver'=>'mysql','host'=>getenv('DB_HOST'),'database'=>getenv('DB_DATABASE'),'username'=>'test','password'=>'test-only-password','charset'=>'utf8mb4','collation'=>'utf8mb4_unicode_ci','prefix'=>'']);
+$db->addConnection(['driver'=>'mysql','host'=>getenv('DB_HOST'),'unix_socket'=>getenv('DB_SOCKET') ?: '', 'database'=>getenv('DB_DATABASE'),'username'=>'test','password'=>'test-only-password','charset'=>'utf8mb4','collation'=>'utf8mb4_unicode_ci','prefix'=>'']);
 $db->setAsGlobal(); $db->bootEloquent();
 $app->instance('db', $db->getDatabaseManager());
 Facade::setFacadeApplication($app);
@@ -33,7 +33,7 @@ Http::fake(['api.dulupay.com/api.php*' => function ($request) {
 }]);
 // External append-only log deliberately does not participate in DB rollback.
 set_error_handler(function($severity,$message,$file,$line){throw new ErrorException($message,0,$severity,$file,$line);});
-$queueLog = '/dujiaoka/testing-queue-' . getmypid() . '.jsonl';
+$queueLog = sys_get_temp_dir().'/testing-queue-' . getmypid() . '.jsonl';
 file_put_contents($queueLog, '');
 $app->instance(Illuminate\Contracts\Bus\Dispatcher::class,new class($queueLog) {
     private $path;

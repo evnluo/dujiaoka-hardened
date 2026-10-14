@@ -4,7 +4,6 @@ namespace App\Filament\Resources\Payments;
 
 use App\Filament\Support\ActionFeedback;
 use App\Filament\Resources\ShopResource;
-use App\Filament\Support\AdminAccess;
 use App\Models\Pay;
 use BackedEnum;
 use Filament\Actions\EditAction;
@@ -21,8 +20,6 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 use UnitEnum;
 
 class PayResource extends ShopResource
@@ -72,32 +69,7 @@ class PayResource extends ShopResource
 
     public static function saveGateway(array $data, ?Pay $record = null): Pay
     {
-        AdminAccess::authorize();
-        return DB::transaction(function () use ($data, $record): Pay {
-            $pay = $record ? Pay::query()->lockForUpdate()->findOrFail($record->id) : new Pay();
-            if ($record && $pay->pay_handleroute !== '/pay/yipay') {
-                throw ValidationException::withMessages(['pay_name' => '旧支付渠道只读，不允许启用。']);
-            }
-            foreach (['pay_name', 'merchant_id', 'pay_client', 'is_open'] as $key) {
-                if (array_key_exists($key, $data)) { $pay->{$key} = $data[$key]; }
-            }
-            if (! $record) {
-                $pay->pay_check = $data['pay_check'];
-                if (Pay::withTrashed()->where('pay_check', $pay->pay_check)->exists()) {
-                    throw ValidationException::withMessages(['pay_check' => '该支付标识已有记录（包括旧渠道）。请编辑对应的现有易支付渠道。']);
-                }
-            }
-            foreach (['merchant_key', 'merchant_pem'] as $key) {
-                if (filled($data[$key] ?? null)) { $pay->{$key} = $data[$key]; }
-            }
-            $pay->pay_handleroute = '/pay/yipay';
-            $pay->pay_method = Pay::METHOD_JUMP;
-            if (! filter_var($pay->merchant_key, FILTER_VALIDATE_URL) || parse_url($pay->merchant_key, PHP_URL_SCHEME) !== 'https' || blank($pay->merchant_pem)) {
-                throw ValidationException::withMessages(['merchant_key' => '请配置有效的 HTTPS 网关地址及商户签名密钥。']);
-            }
-            $pay->save();
-            return $pay;
-        });
+        return app(\App\Service\PaymentGatewayConfiguration::class)->save($data, $record);
     }
 
     public static function table(Table $table): Table

@@ -35,6 +35,7 @@ namespace {
     $db = new Capsule($app);
     $connection = [
         'driver' => 'mysql', 'host' => getenv('DB_HOST'), 'database' => getenv('DB_DATABASE'),
+        'unix_socket' => getenv('DB_SOCKET') ?: '',
         'username' => 'test', 'password' => 'test-only-password',
         'charset' => 'utf8mb4', 'collation' => 'utf8mb4_unicode_ci', 'prefix' => '',
     ];

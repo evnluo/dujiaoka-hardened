@@ -44,6 +44,8 @@ jobs:
         run: sh tests/run-database.sh dujiaoka-security-test
       - name: Verify concurrent inventory edits and imports
         run: sh tests/run-inventory-database.sh dujiaoka-security-test
+      - name: Verify real MCP SDK lifecycles and concurrent receipts
+        run: sh tests/run-mcp.sh dujiaoka-security-test
       - name: Verify Nginx and PHP access boundaries
         run: sh tests/container-http.sh dujiaoka-security-test
       - name: Verify production entrypoint and storage initialization

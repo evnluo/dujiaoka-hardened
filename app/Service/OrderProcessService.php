@@ -389,16 +389,16 @@ class OrderProcessService
     }
 
     /** Operator-only recovery: no callback route can opt into this transition. */
-    public function reconcileDuluPayOrder(string $orderSN, string $tradeNo, string $actor): Order
+    public function reconcileDuluPayOrder(string $orderSN, string $tradeNo, string $actor, ?\Closure $reviewGuard = null): Order
     {
         if (!preg_match('/\A[A-Za-z0-9._-]{1,80}\z/D', $actor)
             || !preg_match('/\A[A-Za-z0-9_-]{1,200}\z/D', $tradeNo)) {
             throw new RuleValidationException('reconciliation_invalid_arguments');
         }
-        return $this->settleOrder($orderSN, null, $tradeNo, $actor);
+        return $this->settleOrder($orderSN, null, $tradeNo, $actor, $reviewGuard);
     }
 
-    private function settleOrder(string $orderSN, ?float $actualPrice, string $tradeNo, ?string $actor = null): Order
+    private function settleOrder(string $orderSN, ?float $actualPrice, string $tradeNo, ?string $actor = null, ?\Closure $reviewGuard = null): Order
     {
         if (DB::transactionLevel() !== 0) {
             throw new RuleValidationException('Order fulfilment cannot run inside an existing database transaction.');
@@ -409,6 +409,7 @@ class OrderProcessService
         $paymentLock = $this->orderService->acquirePaymentLock();
         try {
             DB::beginTransaction();
+            if ($reviewGuard !== null) $reviewGuard();
             // 在事务中锁定订单，串行化同一订单的并发支付通知。
             $order = $this->orderService->detailOrderSNForUpdate($orderSN);
             if (!$order) {

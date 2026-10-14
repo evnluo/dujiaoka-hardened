@@ -2,8 +2,9 @@
 // Synthetic schema mirrors the existing business table/column names, never production rows.
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
-if (DB::connection()->getDriverName() !== 'sqlite' || DB::connection()->getDatabaseName() !== ':memory:') {
-    throw new RuntimeException('Fixture schema is restricted to in-memory SQLite.');
+if (! (DB::connection()->getDriverName() === 'sqlite' && DB::connection()->getDatabaseName() === ':memory:')
+    && ! (getenv('MCP_SYNTHETIC') === '1' && getenv('APP_ENV') === 'testing' && DB::connection()->getDatabaseName() === 'dujiaoka_mcp_test')) {
+    throw new RuntimeException('Fixture schema is restricted to explicitly isolated test databases.');
 }
 Schema::create('goods_group', function ($t): void {
     $t->id(); $t->string('gp_name'); $t->integer('is_open')->default(1); $t->integer('ord')->default(1); $t->timestamps(); $t->softDeletes();

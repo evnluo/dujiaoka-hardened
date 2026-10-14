@@ -17,6 +17,8 @@ bootstrap/cache/*.php
 !resources/**
 !docker/**
 !tests/**
+!docs/shop-mcp-*.md
+tests/mcp-client/node_modules
 public/uploads
 public/storage
 **/.env*

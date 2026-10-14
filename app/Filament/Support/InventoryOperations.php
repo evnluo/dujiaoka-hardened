@@ -79,6 +79,13 @@ final class InventoryOperations
 
     public static function import(int $goodsId, string $content, bool $isLoop = false): array
     {
+        $result = self::importDetailed($goodsId, $content, $isLoop);
+        return ['added' => $result['added'], 'skipped' => $result['skipped']];
+    }
+
+    /** Same importer, with exact new IDs for non-UI clients; content never leaves this result. */
+    public static function importDetailed(int $goodsId, string $content, bool $isLoop = false): array
+    {
         AdminAccess::authorize();
         $cards = self::parse($content);
 
@@ -87,6 +94,7 @@ final class InventoryOperations
             if ((int) $goods->type !== Goods::AUTOMATIC_DELIVERY) {
                 throw ValidationException::withMessages(['goods_id' => '仅自动发货商品可以导入卡密。']);
             }
+            $lastId = (int) Carmis::withTrashed()->where('goods_id', $goodsId)->orderByDesc('id')->lockForUpdate()->value('id');
             $added = 0;
             foreach (array_chunk($cards, 200) as $chunk) {
                 // Current read: an enclosing repeatable-read transaction may have an older snapshot.
@@ -102,7 +110,8 @@ final class InventoryOperations
                 }
             }
 
-            return ['added' => $added, 'skipped' => count($cards) - $added];
+            return ['added' => $added, 'skipped' => count($cards) - $added,
+                'ids' => Carmis::withTrashed()->where('goods_id', $goodsId)->where('id', '>', $lastId)->orderBy('id')->lockForUpdate()->pluck('id')->map(fn ($id) => (int) $id)->all()];
         });
     }
 
@@ -110,8 +119,10 @@ final class InventoryOperations
     {
         AdminAccess::authorize();
 
+        $ids = BulkResult::ids($ids);
         return DB::transaction(function () use ($ids): int {
-            $cards = Carmis::query()->whereKey($ids)->orderBy('id')->lockForUpdate()->get();
+            self::lockProducts($ids);
+            $cards = Carmis::query()->whereKey($ids)->orderBy('goods_id')->orderBy('id')->lockForUpdate()->get();
             if ($cards->contains(fn (Carmis $card): bool => (int) $card->status !== Carmis::STATUS_UNSOLD || (int) $card->is_loop === 1)) {
                 throw ValidationException::withMessages(['cards' => '已售出或循环卡密不能归档。此次操作没有改动任何卡密。']);
             }
@@ -123,9 +134,35 @@ final class InventoryOperations
         });
     }
 
+    /** Consistent ordering for every stock mutation: products ascending, then cards. */
+    public static function lockProducts(array $ids): void
+    {
+        $goodsIds = Carmis::withTrashed()->whereKey($ids)->pluck('goods_id')->unique()->sort()->values()->all();
+        Goods::withTrashed()->whereKey($goodsIds)->orderBy('id')->lockForUpdate()->get(['id']);
+    }
+
+    public static function restore(array $ids): int
+    {
+        AdminAccess::authorize();
+        $ids = BulkResult::ids($ids);
+        return DB::transaction(function () use ($ids): int {
+            self::lockProducts($ids);
+            $cards = Carmis::onlyTrashed()->whereKey($ids)->orderBy('goods_id')->orderBy('id')->lockForUpdate()->get();
+            if ($cards->contains(fn (Carmis $card): bool => (int) $card->status !== Carmis::STATUS_UNSOLD || (int) $card->is_loop !== 0)) {
+                throw ValidationException::withMessages(['cards' => '已售出或循环卡密不能恢复。此次操作没有改动任何卡密。']);
+            }
+            foreach ($cards as $card) { $card->restore(); }
+            return $cards->count();
+        });
+    }
+
     public static function update(int $id, array $data): Carmis
     {
         AdminAccess::authorize();
+        if (filled($data['carmi'] ?? null) && (! is_string($data['carmi']) || ! mb_check_encoding($data['carmi'], 'UTF-8')
+            || mb_strlen($data['carmi']) > 10000 || str_contains($data['carmi'], "\0"))) {
+            throw ValidationException::withMessages(['carmi' => '卡密包含无效内容或过长。']);
+        }
         // Resolve the product before opening a repeatable-read transaction.
         $goodsId = Carmis::query()->findOrFail($id, ['id', 'goods_id'])->goods_id;
 

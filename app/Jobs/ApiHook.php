@@ -73,15 +73,6 @@ class ApiHook implements ShouldQueue
 
         ];
 
-        
-        $opts = [
-            'http' => [
-                'method'  => 'POST',
-                'header'  => 'Content-type: application/json',
-                'content' => json_encode($postdata,JSON_UNESCAPED_UNICODE)
-            ]
-        ];
-        $context  = stream_context_create($opts);
-        file_get_contents($goodInfo->api_hook, false, $context);
+        app(\App\Service\ProductHookDelivery::class)->send((string) $goodInfo->api_hook, $postdata);
     }
 }

@@ -8,7 +8,7 @@ use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
 
 final class ShopRichContent
 {
-    public static function render(?string $html): string
+    public static function render(?string $html, bool $keepAttachmentIds = false): string
     {
         if (blank($html)) {
             return '';
@@ -17,6 +17,9 @@ final class ShopRichContent
         // Do not rewrite stored legacy HTML. Sanitize only the public rendering boundary.
         $config = (new HtmlSanitizerConfig)->allowSafeElements()->allowRelativeLinks()->allowRelativeMedias()
             ->allowAttribute('style', ['img'])->allowAttribute('width', ['img'])->withMaxInputLength(500000);
+        if ($keepAttachmentIds) {
+            $config = $config->allowAttribute('data-id', ['img']);
+        }
         $safe = (new HtmlSanitizer($config))->sanitize($html);
         $document = new DOMDocument('1.0', 'UTF-8');
         $previous = libxml_use_internal_errors(true);

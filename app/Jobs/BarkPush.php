@@ -3,7 +3,6 @@
 namespace App\Jobs;
 
 use App\Models\Order;
-use GuzzleHttp\Client;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -61,7 +60,6 @@ class BarkPush implements ShouldQueue
     public function handle()
     {
         $goodInfo = $this->goodsService->detail($this->order->goods_id);
-        $client = new Client();
         $apiUrl = dujiaoka_config_get('bark_server') .'/'. dujiaoka_config_get('bark_token');
 		$params = [
 			"title" => __('dujiaoka.prompt.new_order_push').'('.$this->order->actual_price.'元)',
@@ -81,6 +79,6 @@ class BarkPush implements ShouldQueue
 		if (dujiaoka_config_get('is_open_bark_push_url', 0) == BaseModel::STATUS_OPEN) {
 			$params["url"] = url('detail-order-sn/'.$this->order->order_sn);
 		}
-        $client->post($apiUrl,['form_params' => $params, 'verify' => false]);
+        app(\App\Service\ProductHookDelivery::class)->send($apiUrl, $params);
     }
 }
