@@ -5,6 +5,7 @@ $checks = [
     'Laravel 13 framework' => str_starts_with(Illuminate\Foundation\Application::VERSION, '13.'),
     'Filament 5 panel builder' => str_starts_with(ltrim(Composer\InstalledVersions::getPrettyVersion('filament/filament'), 'v'), '5.'),
     'Dcat removed' => !Composer\InstalledVersions::isInstalled('dcat/laravel-admin') && !Composer\InstalledVersions::isInstalled('dcat-x/laravel-admin'),
+    'GD WebP decode and encode' => function_exists('imagecreatefromwebp') && function_exists('imagewebp'),
 ];
 foreach (['pdo_mysql','bcmath','mbstring','gd','intl','zip','pcntl','redis'] as $extension) {
     $checks['extension '.$extension] = extension_loaded($extension);
