@@ -29,6 +29,10 @@ class OrderUpdated
      */
     public function handle(OrderUpdatedEvent $event)
     {
+        if ($event->preparedMail !== null) {
+            \Illuminate\Support\Facades\Bus::dispatch($event->preparedMail);
+            return;
+        }
         $sysCache = app(\App\Support\ShopSettings::class)->getAll();
         // 当代充商品状态，将会对顾客进行订单内容推送
         $order = [

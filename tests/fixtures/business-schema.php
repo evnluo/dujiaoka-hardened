@@ -41,7 +41,7 @@ Schema::create('orders', function ($t): void {
     $t->timestamps(); $t->softDeletes();
 });
 Schema::create('emailtpls', function ($t): void {
-    $t->id(); $t->string('tpl_name'); $t->string('tpl_token'); $t->text('tpl_content'); $t->timestamps(); $t->softDeletes();
+    $t->id(); $t->string('tpl_name'); $t->string('tpl_token')->unique(); $t->text('tpl_content'); $t->timestamps(); $t->softDeletes();
 });
 Schema::create('jobs', function ($t): void {
     $t->id(); $t->string('queue')->index(); $t->longText('payload'); $t->unsignedTinyInteger('attempts');

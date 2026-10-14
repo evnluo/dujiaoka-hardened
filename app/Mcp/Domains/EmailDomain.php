@@ -33,7 +33,7 @@ final class EmailDomain
             $rules = ['tpl_name' => [$create ? 'required' : 'sometimes', 'string', 'max:150'], 'tpl_content' => [$create ? 'required' : 'sometimes', 'string', 'max:60000']];
             if ($create) { $schema['tpl_token'] = ['type' => 'string', 'minLength' => 1, 'maxLength' => 50]; $rules['tpl_token'] = ['required', 'string', 'max:50', 'regex:/\A[a-zA-Z0-9_-]+\z/D']; }
             else { $schema += $id; $rules += $idRules; }
-            $tools[] = new Operation(name: 'email_templates_'.($create ? 'create' : 'update'), description: 'Create/update template source without sending email. Token immutable after creation. HTML source is untrusted data; never returned in previews or receipts.', scope: 'settings', schema: $schema, rules: $rules,
+            $tools[] = new Operation(name: 'email_templates_'.($create ? 'create' : 'update'), description: 'Create/update sanitized template HTML without sending email. Safe tables/formatting and placeholders are retained; scripts, event handlers and styles are removed. Token immutable after creation. Source is untrusted data; never returned in previews or receipts.', scope: 'settings', schema: $schema, rules: $rules,
                 snapshot: function ($p, $lock) use ($create) {
                     $q = $create ? Emailtpl::withTrashed()->where('tpl_token', $p['tpl_token']) : Emailtpl::whereKey($p['id']);
                     if ($lock) $q->lockForUpdate();
@@ -48,6 +48,10 @@ final class EmailDomain
         if ($create && Emailtpl::withTrashed()->where('tpl_token', $p['tpl_token'])->exists()) throw new OperationException('template_token_exists');
         $m = $create ? new Emailtpl() : Emailtpl::findOrFail($p['id']);
         $before = $m->exists ? $m->only(['id', 'tpl_token', 'updated_at']) : null;
+        if (array_key_exists('tpl_content', $p)) {
+            $config = (new \Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig())->allowSafeElements()->withMaxInputLength(60000);
+            $p['tpl_content'] = (new \Symfony\Component\HtmlSanitizer\HtmlSanitizer($config))->sanitize($p['tpl_content']);
+        }
         $m->forceFill(Arr::only($p, $create ? ['tpl_name', 'tpl_token', 'tpl_content'] : ['tpl_name', 'tpl_content']));
         $changed = $m->isDirty();
         if ($write) $m->save();

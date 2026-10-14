@@ -35,6 +35,7 @@ run_php() {
 }
 run_php tests/mcp-bootstrap.php
 run_php tests/mcp-concurrency.php
+run_php tests/mcp-notification-locks.php
 run_php tests/mcp-cli-smoke.php
 run_php tests/mcp-bootstrap.php
 docker create --name "$app" --network "$network" --entrypoint php \

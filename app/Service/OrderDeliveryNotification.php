@@ -20,10 +20,13 @@ final class OrderDeliveryNotification
         $q = Order::withTrashed()->whereKey($id);
         if ($lock) $q->lockForUpdate();
         $order = $q->first();
+        $product = $order ? Goods::withTrashed()->whereKey($order->goods_id)->when($lock, fn ($q) => $q->lockForUpdate())->first(['id', 'gd_name']) : null;
+        $template = $order ? Emailtpl::where('tpl_token', $this->token($order))->when($lock, fn ($q) => $q->lockForUpdate())->first() : null;
+        if ($lock) DB::table('admin_settings')->where('slug', ShopSettings::SLUG)->lockForUpdate()->first();
         return [
             'order' => $order?->getAttributes(),
-            'template' => $order ? Emailtpl::where('tpl_token', $this->token($order))->first()?->getAttributes() : null,
-            'product' => $order ? Goods::withTrashed()->whereKey($order->goods_id)->first(['id', 'gd_name'])?->toArray() : null,
+            'template' => $template?->getAttributes(),
+            'product' => $product?->toArray(),
             'settings' => app(ShopSettings::class)->getAll(),
             'appUrl' => config('app.url'),
         ];
@@ -42,6 +45,7 @@ final class OrderDeliveryNotification
         // queue dispatch occurs after this transaction, never in an allocation path.
         [$to, $mail] = DB::transaction(function () use ($id, $guard): array {
             if ($guard) $guard();
+            else $this->snapshot($id, true);
             $o = $this->eligible($id, true);
             $template = Emailtpl::where('tpl_token', $this->token($o))->first();
             $mail = replace_mail_tpl($template->toArray(), [

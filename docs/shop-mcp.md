@@ -14,7 +14,7 @@ Run `php artisan shop:mcp-token import --admin=<existing-admin> --name=<client-l
 
 Run `php artisan shop:mcp-token revoke --admin=<existing-admin> --id=<record-id>` with `{ "password": "<secret supplied via protected stdin>" }` on stdin. There is intentionally no CLI token export or agent tool for creating credentials. The CLI smoke uses only disposable synthetic identities and verifies import/hash/revoke/rejection through the actual subprocess.
 
-Client configuration: use Streamable HTTP, the HTTPS endpoint above and `Authorization: Bearer <secret resolved by the client>`. Do not copy the real bearer into this document. Cookie auth and URL query tokens do not work. `Origin`, if present, must exactly match a comma-separated `SHOP_MCP_ALLOWED_ORIGINS` entry; native clients without Origin work normally. Configure TLS at the existing proxy. The default limit is 120 authenticated requests/minute per token, with an 8 MiB request-body bound; inventory imports and images have tighter field-level limits.
+Client configuration: use Streamable HTTP, the HTTPS endpoint above and `Authorization: Bearer <credential resolved by the client>`. Do not copy the real bearer into this document. Cookie auth and URL query tokens do not work. `Origin`, if present, must exactly match a comma-separated `SHOP_MCP_ORIGINS` entry; native clients without Origin work normally. Configure TLS at the existing proxy. The default limit is 120 authenticated requests/minute per token, with an 8 MiB request-body bound; inventory imports and images have tighter field-level limits.
 
 ### Outbound destinations
 
@@ -45,6 +45,8 @@ Read pagination is 25 by default, maximum 100. Exact-ID exports/bulk selections 
 
 Intentional explicit rejections, not simulated support:
 
+- `payments_recover_expired`: at most 1,000 cards per order. Larger legacy orders return `recovery_quantity_exceeds_review_limit` before any preview/provider call and need protected local operator reconciliation. Never split an order or silently truncate reviewed stock.
+- Template writes retain safe HTML tables/formatting/placeholders, but remove executable markup and inline styles. Existing templates are not rewritten unless submitted.
 - `refunds_provider_refund`: no trusted refund API/credential contract is present. `refunds_record_external` records an already-completed external refund, caps cumulative refund value, and never moves money or changes delivery/payment state.
 - `settings_turnstile_update`: server-owned environment configuration is read-only through MCP. Read configured/enabled metadata with `settings_turnstile_status`; change environment through the deployment path.
 - `operations_retry_job`: arbitrary historical serialized jobs cannot prove duplicate-safety. Failed-job metadata is readable, but payloads/exceptions are not exposed or deserialized. Use the explicit reviewed resend operation where appropriate.

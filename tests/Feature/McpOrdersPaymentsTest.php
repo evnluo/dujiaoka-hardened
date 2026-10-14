@@ -203,6 +203,23 @@ final class McpOrdersPaymentsTest extends TestCase
         $this->assertSame($before, $o->fresh()->getAttributes()); $this->assertSame($stock, DB::table('carmis')->get()->toJson());
     }
 
+    public function test_manual_notification_captures_reviewed_content_before_commit(): void
+    {
+        $o = $this->order();
+        DB::table('emailtpls')->insert(['tpl_name' => 'Reviewed title', 'tpl_token' => 'completed_order', 'tpl_content' => 'Reviewed {webname}: {ord_info}']);
+        app(\App\Support\ShopSettings::class)->setMany(['text_logo' => 'Reviewed shop']);
+        DB::transaction(function () use ($o): void {
+            $this->runTool('orders_complete', ['id' => $o->id, 'message' => 'Done', 'notifyCustomer' => true], 'apply');
+            Queue::assertNothingPushed();
+            DB::table('emailtpls')->where('tpl_token', 'completed_order')->update(['tpl_content' => 'UNREVIEWED {ord_info}']);
+            app(\App\Support\ShopSettings::class)->setMany(['text_logo' => 'UNREVIEWED']);
+        });
+        Queue::assertPushed(MailSend::class, function ($job): bool {
+            $values = (array) $job;
+            return in_array('Reviewed Reviewed shop: <br/><br/>Done', $values, true) && ! str_contains(json_encode($values), 'UNREVIEWED');
+        });
+    }
+
     public function test_payment_metadata_never_discloses_secrets_and_legacy_is_read_only(): void
     {
         $r = $this->runTool('payments_list'); $this->assertSame(2, $r['total']);
@@ -270,6 +287,19 @@ final class McpOrdersPaymentsTest extends TestCase
         $this->order(['trade_no' => 'VERIFIED-TRADE', 'status' => 4, 'deleted_at' => now()]); $this->provider($o);
         $this->reject(fn () => $this->runTool('payments_recover_expired', ['orderId' => $o->id, 'tradeNo' => 'VERIFIED-TRADE'], 'apply'), 'payment_trade_already_bound');
         $this->assertSame(-1, (int) $o->fresh()->status); Queue::assertNothingPushed();
+    }
+
+    public function test_recovery_never_silently_truncates_reviewed_inventory(): void
+    {
+        $o = $this->order(['status' => -1, 'type' => 1, 'trade_no' => '', 'info' => '', 'buy_amount' => 1001]);
+        $this->provider($o);
+        $p = ['orderId' => $o->id, 'tradeNo' => 'VERIFIED-TRADE'];
+        $tool = $this->tool('payments_recover_expired');
+        foreach (['snapshot', 'preview', 'apply'] as $phase) {
+            $this->reject(fn () => $phase === 'snapshot' ? ($tool->snapshot)($p, false) : ($tool->{$phase})($p), 'recovery_quantity_exceeds_review_limit');
+        }
+        Http::assertNothingSent(); Queue::assertNothingPushed();
+        $this->assertSame(-1, (int) $o->fresh()->status);
     }
 
     public function test_callback_diagnostics_validates_signed_description_and_never_applies_payment(): void

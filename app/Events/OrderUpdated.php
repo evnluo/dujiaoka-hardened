@@ -22,7 +22,7 @@ class OrderUpdated
      *
      * @return void
      */
-    public function __construct(Order $order)
+    public function __construct(Order $order, public ?\App\Jobs\MailSend $preparedMail = null)
     {
         $this->order = $order;
     }

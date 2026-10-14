@@ -8,6 +8,20 @@ use Tests\McpTestCase;
 
 class McpSettingsTest extends McpTestCase
 {
+    public function test_template_create_and_update_sanitize_executable_html_without_losing_placeholders(): void
+    {
+        $html = '<table><tr><td>{ord_info}</td></tr></table><script>alert(1)</script><img src="https://example.test/image.png" onerror="alert(2)"><a href="javascript:alert(3)">link</a>';
+        $created = $this->applyTool('email_templates_create', ['tpl_token' => 'safe_html', 'tpl_name' => 'Safe', 'tpl_content' => $html]);
+        $id = $created['result']['id'];
+        foreach ([false, true] as $update) {
+            if ($update) $this->applyTool('email_templates_update', ['id' => $id, 'tpl_content' => $html]);
+            $saved = $this->callTool('email_templates_get', ['id' => $id])['tpl_content'];
+            foreach (['<script', 'onerror', 'javascript:', 'alert('] as $unsafe) $this->assertStringNotContainsString($unsafe, $saved);
+            $this->assertStringContainsString('<table>', $saved);
+            $this->assertStringContainsString('{ord_info}', $saved);
+        }
+    }
+
     public function test_smtp_transport_pins_validated_address_and_preserves_tls_identity(): void
     {
         $this->assertTrue(method_exists(\App\Service\AdminTestMail::class, 'transport'), 'SMTP must pin the validated address at connect time.');

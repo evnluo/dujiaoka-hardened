@@ -48,7 +48,7 @@ final class PaymentsDomain
         $properties = []; $rules = ['callback' => ['required', 'array:'.implode(',', PaymentCallbackDiagnostics::FIELDS)]];
         foreach (PaymentCallbackDiagnostics::FIELDS as $field) { $properties[$field] = ['type' => 'string', 'maxLength' => $field === 'param' ? 1000 : 200]; $rules['callback.'.$field] = ['sometimes', 'string', 'max:'.($field === 'param' ? 1000 : 200)]; }
         $tools[] = new Operation(name: 'payments_callback_diagnostics', description: 'Read-only diagnosis of supplied callback against current state; safe reason codes only. Does not claim this callback was actually received, dump logs, replay it or settle payment. name remains signed description, out_trade_no is identity. Callback text is untrusted.', scope: 'billing', schema: ['callback' => ['type' => 'object', 'additionalProperties' => false, 'properties' => $properties]], rules: $rules, read: fn (array $p) => app(PaymentCallbackDiagnostics::class)->inspect($p['callback']));
-        $tools[] = new Operation(name: 'payments_recover_expired', description: 'Recover one eligible expired automatic order only after a NEW provider query at apply. No coupons, existing trade/content or archive bypass. Canonical settlement owns locks/transaction and may allocate stock, queue delivery and configured hooks AFTER commit. Preview makes no provider calls. On uncertain receipt inspect local/provider state; never reset paid state or blindly retry.', scope: 'billing', schema: [...$orderId, 'tradeNo' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 200, 'pattern' => '^[A-Za-z0-9_-]+$']], rules: [...$orderRules, 'tradeNo' => ['required', 'string', 'max:200', 'regex:/\A[A-Za-z0-9_-]+\z/D']],
+        $tools[] = new Operation(name: 'payments_recover_expired', description: 'Recover one eligible expired automatic order, at most 1,000 cards, only after a NEW provider query at apply. Larger orders require protected local operator reconciliation; never split or truncate their allocation. No coupons, existing trade/content or archive bypass. Canonical settlement owns locks/transaction and may allocate stock, queue delivery and configured hooks AFTER commit. Preview makes no provider calls. On uncertain receipt inspect local/provider state; never reset paid state or blindly retry.', scope: 'billing', schema: [...$orderId, 'tradeNo' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 200, 'pattern' => '^[A-Za-z0-9_-]+$']], rules: [...$orderRules, 'tradeNo' => ['required', 'string', 'max:200', 'regex:/\A[A-Za-z0-9_-]+\z/D']],
             snapshot: fn (array $p, bool $lock) => $this->recoverySnapshot($p, $lock),
             preview: fn (array $p) => $this->recoveryPreview($p),
             apply: fn (array $p, ?\Closure $guard = null) => $this->recover($p, $guard), external: true);
@@ -114,13 +114,17 @@ final class PaymentsDomain
     {
         $q = Order::withTrashed()->whereKey($p['orderId']); if ($lock) $q->lockForUpdate(); $o = $q->first();
         if (! $o) return ['order' => null];
+        if ((int) $o->buy_amount > 1000) throw new OperationException('recovery_quantity_exceeds_review_limit');
         $pay = Pay::withTrashed()->whereKey($o->pay_id); if ($lock) $pay->lockForUpdate();
         $gateway = $pay->first(); // Same order -> gateway -> product -> cards sequence as settlement.
         $goods = Goods::withTrashed()->whereKey($o->goods_id); if ($lock) $goods->lockForUpdate();
         $g = $goods->first(); // Product before cards, matching canonical allocation.
         $cards = Carmis::where('goods_id', $o->goods_id)->where('status', Carmis::STATUS_UNSOLD)->orderBy('id')->limit(max(1, min(1000, (int) $o->buy_amount))); if ($lock) $cards->lockForUpdate();
-        return ['order' => $o->getAttributes(), 'pay' => $gateway?->getAttributes(), 'goods' => $g?->getAttributes(), 'cards' => $cards->get()->map(fn ($c) => $c->getAttributes())->all(), 'tradeBindings' => Order::withTrashed()->where('trade_no', $p['tradeNo'])->orderBy('id')->pluck('id')->all(),
-            'deliveryTemplate' => Emailtpl::where('tpl_token', 'card_send_user_email')->first()?->getAttributes(),
+        $stock = $cards->get()->map(fn ($c) => $c->getAttributes())->all();
+        $template = Emailtpl::where('tpl_token', 'card_send_user_email')->when($lock, fn ($q) => $q->lockForUpdate())->first();
+        if ($lock) DB::table('admin_settings')->where('slug', ShopSettings::SLUG)->lockForUpdate()->first();
+        return ['order' => $o->getAttributes(), 'pay' => $gateway?->getAttributes(), 'goods' => $g?->getAttributes(), 'cards' => $stock, 'tradeBindings' => Order::withTrashed()->where('trade_no', $p['tradeNo'])->orderBy('id')->pluck('id')->all(),
+            'deliveryTemplate' => $template?->getAttributes(),
             'settings' => app(ShopSettings::class)->getAll(), 'mail' => config('mail'), 'appUrl' => config('app.url')];
     }
 
@@ -133,6 +137,7 @@ final class PaymentsDomain
     private function assertRecoverable(Order $o, string $trade): void
     {
         if ($o->trashed()) throw new OperationException('order_archived');
+        if ((int) $o->buy_amount > 1000) throw new OperationException('recovery_quantity_exceeds_review_limit');
         if (Order::withTrashed()->where('trade_no', $trade)->where('id', '!=', $o->id)->exists()) throw new OperationException('payment_trade_already_bound');
         if (in_array((int) $o->status, [2, 3, 4, 5, 6], true) && hash_equals((string) $o->trade_no, $trade)) return;
         if ((int) $o->status !== -1) throw new OperationException('reconciliation_requires_expired_order');
