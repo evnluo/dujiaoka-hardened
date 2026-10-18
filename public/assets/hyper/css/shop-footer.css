@@ -1,0 +1,102 @@
+.shop-footer {
+    margin-top: auto;
+    border-top: 1px solid #e4e4e7;
+    background: #fff;
+    color: #52525b;
+}
+.shop-footer-inner {
+    padding: 24px;
+}
+.shop-footer-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px 32px;
+}
+.shop-footer a,
+.shop-footer button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    border-radius: 8px;
+    color: #52525b;
+    text-decoration: none;
+    transition: color 200ms ease-out, background-color 200ms ease-out;
+}
+.shop-footer .shop-footer-brand {
+    justify-content: flex-start;
+    color: #18181b;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    white-space: nowrap;
+}
+.shop-footer-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+.shop-footer-nav a,
+.shop-footer-top {
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 14px;
+    line-height: 24px;
+    white-space: nowrap;
+}
+.shop-footer-top {
+    gap: 6px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+.shop-footer-top[hidden] {
+    display: none;
+}
+.shop-footer a:focus-visible,
+.shop-footer button:focus-visible {
+    outline: 2px solid #18181b !important;
+    outline-offset: 2px;
+    background: #f4f4f5;
+    color: #18181b;
+}
+.shop-footer-custom {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+.shop-footer-custom a {
+    display: inline;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+@media (hover: hover) and (pointer: fine) {
+    .shop-footer-nav a:hover,
+    .shop-footer-top:hover {
+        background: #f4f4f5;
+        color: #18181b;
+    }
+    .shop-footer-brand:hover {
+        color: #52525b;
+    }
+}
+@media (max-width: 639px) {
+    .shop-footer-inner {
+        padding: 20px 24px;
+    }
+    .shop-footer-main {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    .shop-footer-nav {
+        margin-left: -12px;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .shop-footer a,
+    .shop-footer button {
+        transition: none;
+    }
+}
