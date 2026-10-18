@@ -279,6 +279,35 @@ final class McpOrdersPaymentsTest extends TestCase
         Queue::assertPushed(MailSend::class, 1); $this->assertSame(1, (int) DB::table('goods')->value('sales_volume')); Http::assertSentCount(2);
     }
 
+    public function test_manual_recovery_captures_pending_email_before_commit(): void
+    {
+        $o = $this->order(['status' => -1, 'type' => 2, 'trade_no' => '', 'info' => '']);
+        $this->provider($o);
+        DB::table('emailtpls')->insert([
+            ['tpl_name' => 'Reviewed pending', 'tpl_token' => 'pending_order', 'tpl_content' => 'Reviewed {webname}: {order_id}'],
+            ['tpl_name' => 'Reviewed operator', 'tpl_token' => 'manual_send_manage_mail', 'tpl_content' => 'Operator notice'],
+        ]);
+        app(\App\Support\ShopSettings::class)->setMany(['text_logo' => 'Reviewed shop']);
+        $changed = false;
+        Event::listen(\Illuminate\Database\Events\TransactionCommitted::class, function () use (&$changed): void {
+            if ($changed) return;
+            $changed = true;
+            Queue::assertNothingPushed();
+            DB::table('emailtpls')->where('tpl_token', 'pending_order')->update(['tpl_content' => 'UNREVIEWED {webname}']);
+            app(\App\Support\ShopSettings::class)->setMany(['text_logo' => 'UNREVIEWED shop']);
+        });
+        $r = $this->runTool('payments_recover_expired', ['orderId' => $o->id, 'tradeNo' => 'VERIFIED-TRADE'], 'apply');
+        $this->assertTrue($changed);
+        $this->assertSame(2, $r['after']['status']);
+        Queue::assertPushed(MailSend::class, function ($job) use ($o): bool {
+            $values = (array) $job;
+            return in_array('Reviewed Reviewed shop: '.$o->order_sn, $values, true)
+                && in_array($o->email, $values, true)
+                && ! str_contains(json_encode($values), 'UNREVIEWED');
+        });
+        Queue::assertPushed(MailSend::class, 2);
+    }
+
     public function test_manual_recovery_snapshot_binds_manual_templates_not_automatic_inventory(): void
     {
         $o = $this->order(['status' => -1, 'type' => 2, 'trade_no' => '', 'info' => '']);

@@ -641,9 +641,24 @@ class OrderProcessService
         Order::withoutEvents(function () use ($order): void {
             $order->save();
         });
+        $preparedMail = null;
+        if ((int) $order->type === Order::MANUAL_PROCESSING && (int) $order->status === Order::STATUS_PENDING) {
+            // Keep the reviewed customer notice immutable across commit and dispatch.
+            $body = replace_mail_tpl($this->emailtplService->detailByToken('pending_order'), [
+                'created_at' => date('Y-m-d H:i'),
+                'ord_title' => $order->title,
+                'webname' => dujiaoka_config_get('text_logo', '独角数卡'),
+                'weburl' => config('app.url'),
+                'order_id' => $order->order_sn,
+                'ord_price' => $order->actual_price,
+                'ord_info' => str_replace(PHP_EOL, '<br/>', $order->info),
+            ]);
+            $preparedMail = new MailSend($order->email, $body['tpl_name'], $body['tpl_content']);
+        }
         $deferredDispatches[] = [
             'type' => 'order_updated',
             'order' => $order,
+            'preparedMail' => $preparedMail,
         ];
     }
 
@@ -679,7 +694,7 @@ class OrderProcessService
             if ($dispatch['type'] === 'order_updated') {
                 $eventDispatcher = Order::getEventDispatcher();
                 if ($eventDispatcher) {
-                    $eventDispatcher->dispatch(new OrderUpdated($dispatch['order']));
+                    $eventDispatcher->dispatch(new OrderUpdated($dispatch['order'], $dispatch['preparedMail']));
                 }
                 continue;
             }
