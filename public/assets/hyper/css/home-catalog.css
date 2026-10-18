@@ -1,0 +1,111 @@
+/* Homepage-only rules: do not depend on the runtime utility compiler for layout. */
+.shop-category-slot {
+    min-height: 64px;
+}
+.shop-categories {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding: 4px 8px 8px;
+    scrollbar-width: thin;
+    scrollbar-color: #a1a1aa transparent;
+}
+.shop-categories button {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 8px 16px;
+    white-space: nowrap;
+    border: 1px solid #d4d4d8;
+    border-radius: 999px;
+    background: #fff;
+    color: #27272a;
+    font: inherit;
+    line-height: 24px;
+    cursor: pointer;
+}
+.shop-categories button:hover {
+    border-color: #71717a;
+}
+.shop-categories button[aria-pressed="true"] {
+    border-color: #18181b;
+    background: #18181b;
+    color: #fff;
+}
+.shop-categories button:focus-visible,
+.shop-products > a:focus-visible {
+    /* The legacy theme resets all anchor/button outlines with !important. */
+    outline: 2px solid #18181b !important;
+    outline-offset: 2px;
+}
+.shop-categories[hidden],
+.shop-products > [hidden] {
+    display: none;
+}
+.shop-products {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 8px;
+}
+.shop-products > a {
+    min-width: 0;
+}
+.shop-product-media {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    flex-shrink: 0;
+    overflow: hidden;
+    background: #f4f4f5;
+}
+.shop-product-media img {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    color: #52525b;
+}
+.shop-product-badges {
+    flex-wrap: wrap;
+}
+.shop-product-details {
+    padding-left: 12px;
+    padding-right: 12px;
+}
+.shop-product-price {
+    gap: 4px;
+}
+.shop-product-price > :first-child {
+    white-space: nowrap;
+    font-size: 20px;
+}
+@media (min-width: 640px) {
+    .shop-categories {
+        gap: 16px;
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    .shop-products {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 24px;
+        padding: 16px;
+    }
+    .shop-product-details {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    .shop-product-price > :first-child {
+        font-size: 24px;
+    }
+}
+@media (min-width: 1024px) {
+    .shop-products {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
