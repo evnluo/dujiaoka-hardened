@@ -90,8 +90,50 @@ final class DuluPayRecoveryTest extends TestCase
         $this->assertSame(0, DB::transactionLevel());
     }
 
-    public function test_trade_owned_by_another_archived_order_cannot_be_reused(): void
+    public function test_verified_expired_manual_order_recovery_records_payment_pending_once_without_allocating_cards(): void
     {
+        DB::table('orders')->update(['type' => Order::MANUAL_PROCESSING, 'info' => '']);
+        DB::table('goods')->update(['type' => Order::MANUAL_PROCESSING]);
+        DB::table('emailtpls')->insert([
+            ['tpl_name' => 'Manual pending', 'tpl_token' => 'pending_order', 'tpl_content' => 'Payment received; awaiting manual fulfilment'],
+            ['tpl_name' => 'Manual operator', 'tpl_token' => 'manual_send_manage_mail', 'tpl_content' => 'Manual order {order_id}'],
+        ]);
+        app(ShopSettings::class)->setMany(['manage_email' => 'operator@example.test']);
+        $stock = DB::table('carmis')->get()->toJson();
+        $events = 0;
+        \Illuminate\Support\Facades\Event::listen(\App\Events\OrderUpdated::class, function () use (&$events): void {
+            $this->assertSame(0, DB::transactionLevel());
+            $this->assertSame(Order::STATUS_PENDING, (int) Order::first()->status);
+            $events++;
+        });
+
+        for ($i = 0; $i < 2; $i++) {
+            $result = app('Service\\OrderProcessService')->reconcileDuluPayOrder('RECOVERY001', 'RECOVERYTRADE001', 'test-operator');
+            $this->assertSame(Order::STATUS_PENDING, (int) $result->status);
+            $this->assertSame('RECOVERYTRADE001', $result->trade_no);
+            $this->assertSame('', $result->info);
+            $this->assertSame($stock, DB::table('carmis')->get()->toJson());
+            $this->assertSame(2, (int) DB::table('goods')->value('in_stock'));
+            $this->assertSame(1, (int) DB::table('goods')->value('sales_volume'));
+            $this->assertSame(0, DB::transactionLevel());
+        }
+        $this->assertSame(1, $events);
+        Queue::assertPushed(MailSend::class, 2);
+        Queue::assertPushed(MailSend::class, fn ($job) => in_array('Manual pending', (array) $job, true) && in_array('buyer@example.test', (array) $job, true));
+        Queue::assertPushed(MailSend::class, fn ($job) => in_array('Manual operator', (array) $job, true) && in_array('operator@example.test', (array) $job, true));
+        Queue::assertPushed(\App\Jobs\ApiHook::class, 1);
+        Http::assertSentCount(2);
+    }
+
+    public static function deliveryTypes(): array
+    {
+        return ['automatic' => [Order::AUTOMATIC_DELIVERY], 'manual' => [Order::MANUAL_PROCESSING]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('deliveryTypes')]
+    public function test_trade_owned_by_another_archived_order_cannot_be_reused(int $type): void
+    {
+        DB::table('orders')->update(['type' => $type]);
         $other = Order::first()->replicate();
         $other->order_sn = 'OTHERORDER';
         $other->trade_no = 'RECOVERYTRADE001';
@@ -119,6 +161,24 @@ final class DuluPayRecoveryTest extends TestCase
         Queue::assertPushed(MailSend::class, 1);
     }
 
+    public function test_operator_command_reports_manual_recovery_as_paid_awaiting_fulfilment(): void
+    {
+        DB::table('orders')->update(['type' => Order::MANUAL_PROCESSING, 'info' => '']);
+        DB::table('emailtpls')->insert([
+            ['tpl_name' => 'Manual pending', 'tpl_token' => 'pending_order', 'tpl_content' => 'Pending'],
+            ['tpl_name' => 'Manual operator', 'tpl_token' => 'manual_send_manage_mail', 'tpl_content' => 'Manual order'],
+        ]);
+        $this->artisan('payment:reconcile-dulupay', ['order' => 'RECOVERY001', '--trade' => 'RECOVERYTRADE001', '--actor' => 'test-operator'])
+            ->assertExitCode(1);
+        Http::assertNothingSent(); Queue::assertNothingPushed();
+        $this->assertSame(-1, (int) Order::first()->status);
+        $this->artisan('payment:reconcile-dulupay', ['order' => 'RECOVERY001', '--trade' => 'RECOVERYTRADE001', '--actor' => 'test-operator', '--execute' => true])
+            ->expectsOutputToContain('"status":2,"trade_recorded":true,"delivery_complete":false,"manual_attention_required":true,"previously_paid":false')
+            ->assertExitCode(0);
+        $this->assertSame(2, (int) Order::first()->status);
+        Queue::assertPushed(MailSend::class, 2);
+    }
+
     public function test_invalid_callbacks_never_deliver(): void
     {
         DB::table('orders')->update(['status' => 1]);
@@ -138,10 +198,14 @@ final class DuluPayRecoveryTest extends TestCase
         Queue::assertNothingPushed();
     }
 
-    public function test_signed_callback_cannot_recover_expired_order(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('deliveryTypes')]
+    public function test_signed_callback_cannot_recover_expired_order(int $type): void
     {
+        DB::table('orders')->update(['type' => $type]);
         $this->get('/pay/yipay/notify_url?'.http_build_query($this->callbackPayload()))->assertContent('fail');
         $this->assertSame(-1, (int) Order::first()->status);
+        $this->assertSame('', Order::first()->trade_no);
+        $this->assertSame(1, (int) DB::table('carmis')->value('status'));
         Queue::assertNothingPushed();
         Http::assertNothingSent();
     }
@@ -156,8 +220,10 @@ final class DuluPayRecoveryTest extends TestCase
         ]);
     }
 
-    public function test_provider_mismatches_and_failures_leave_expired_order_untouched(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('deliveryTypes')]
+    public function test_provider_mismatches_and_failures_leave_expired_order_untouched(int $type): void
     {
+        DB::table('orders')->update(['type' => $type]);
         $cases = [];
         foreach (['code' => 0, 'status' => 0, 'pid' => 'wrong', 'out_trade_no' => 'wrong', 'trade_no' => 'wrong', 'type' => 'wxpay', 'money' => '9.99'] as $field => $value) {
             $cases[] = array_replace($this->payment(), [$field => $value]);
@@ -178,30 +244,37 @@ final class DuluPayRecoveryTest extends TestCase
 
     private function assertRecoveryRejected(): void
     {
+        $before = (array) DB::table('orders')->first();
         try {
             app('Service\\OrderProcessService')->reconcileDuluPayOrder('RECOVERY001', 'RECOVERYTRADE001', 'test-operator');
             $this->fail('Unsafe recovery accepted.');
         } catch (RuleValidationException $error) {
             $this->assertStringNotContainsString('fixture-signing-key', $error->getMessage());
+            $this->assertEquals($before, (array) DB::table('orders')->first());
             $this->assertSame(1, (int) DB::table('carmis')->value('status'));
+            $this->assertSame(3, (int) DB::table('goods')->value('in_stock'));
             $this->assertSame(0, (int) DB::table('goods')->value('sales_volume'));
             $this->assertSame(0, DB::transactionLevel());
             Queue::assertNothingPushed();
         }
     }
 
-    public function test_ineligible_local_states_are_not_recovered(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('deliveryTypes')]
+    public function test_ineligible_local_states_are_not_recovered(int $type): void
     {
+        DB::table('orders')->update(['type' => $type]);
         $original = (array) DB::table('orders')->first();
-        foreach ([['status' => 1], ['status' => 5], ['type' => 2], ['buy_amount' => 0], ['coupon_id' => 999], ['coupon_ret_back' => 1], ['coupon_discount_price' => '1.00'], ['trade_no' => 'OTHER'], ['info' => 'Prior delivery'], ['deleted_at' => now()]] as $changes) {
+        foreach ([['status' => 0], ['status' => 1], ['status' => 2], ['status' => 3], ['status' => 4], ['status' => 5], ['status' => 6], ['type' => 0], ['type' => 3], ['buy_amount' => 0], ['buy_amount' => -1], ['coupon_id' => 999], ['coupon_ret_back' => 1], ['coupon_discount_price' => '1.00'], ['trade_no' => 'OTHER'], ['info' => 'Prior delivery'], ['info' => ' '], ['deleted_at' => now()]] as $changes) {
             DB::table('orders')->update(array_replace($original, $changes));
             $this->assertRecoveryRejected();
             $this->assertEquals(array_replace($original, $changes), (array) DB::table('orders')->first());
         }
     }
 
-    public function test_gateway_validation_blocks_credential_disclosure(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('deliveryTypes')]
+    public function test_gateway_validation_blocks_credential_disclosure(int $type): void
     {
+        DB::table('orders')->update(['type' => $type]);
         $original = (array) DB::table('pays')->where('id', 14)->first();
         foreach ([['merchant_key' => 'https://evil.example.test/submit.php'], ['merchant_key' => 'http://api.dulupay.com/submit.php'], ['is_open' => 0], ['pay_handleroute' => '/pay/other'], ['deleted_at' => now()], ['merchant_pem' => '']] as $changes) {
             DB::table('pays')->where('id', 14)->update(array_replace($original, $changes));

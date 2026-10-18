@@ -279,9 +279,36 @@ final class McpOrdersPaymentsTest extends TestCase
         Queue::assertPushed(MailSend::class, 1); $this->assertSame(1, (int) DB::table('goods')->value('sales_volume')); Http::assertSentCount(2);
     }
 
-    public function test_expired_recovery_rejects_coupon_and_reused_archived_trade(): void
+    public function test_manual_recovery_snapshot_binds_manual_templates_not_automatic_inventory(): void
     {
-        $o = $this->order(['status' => -1, 'type' => 1, 'trade_no' => '', 'coupon_id' => 3]);
+        $o = $this->order(['status' => -1, 'type' => 2, 'trade_no' => '', 'info' => '']);
+        DB::table('emailtpls')->insert([
+            ['tpl_name' => 'Manual pending', 'tpl_token' => 'pending_order', 'tpl_content' => 'Reviewed pending notice'],
+            ['tpl_name' => 'Manual operator', 'tpl_token' => 'manual_send_manage_mail', 'tpl_content' => 'Reviewed operator notice'],
+        ]);
+        $p = ['orderId' => $o->id, 'tradeNo' => 'VERIFIED-TRADE'];
+        $tool = $this->tool('payments_recover_expired');
+        $before = ($tool->snapshot)($p, false);
+        DB::table('carmis')->update(['carmi' => 'UNRELATED-AUTOMATIC-STOCK']);
+        DB::table('emailtpls')->where('tpl_token', 'card_send_user_email')->update(['tpl_content' => 'Unrelated automatic delivery']);
+        $this->assertSame($before, ($tool->snapshot)($p, false));
+        foreach (['pending_order', 'manual_send_manage_mail'] as $token) {
+            $before = ($tool->snapshot)($p, false);
+            DB::table('emailtpls')->where('tpl_token', $token)->update(['tpl_content' => 'Unreviewed notification']);
+            $this->assertNotEquals($before, ($tool->snapshot)($p, false));
+        }
+        Http::assertNothingSent(); Queue::assertNothingPushed();
+    }
+
+    public static function recoveryTypes(): array
+    {
+        return ['automatic' => [Order::AUTOMATIC_DELIVERY], 'manual' => [Order::MANUAL_PROCESSING]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('recoveryTypes')]
+    public function test_expired_recovery_rejects_coupon_and_reused_archived_trade(int $type): void
+    {
+        $o = $this->order(['status' => -1, 'type' => $type, 'trade_no' => '', 'coupon_id' => 3]);
         $this->reject(fn () => $this->runTool('payments_recover_expired', ['orderId' => $o->id, 'tradeNo' => 'VERIFIED-TRADE'], 'preview'), 'recovery_coupon_not_supported');
         DB::table('orders')->where('id', $o->id)->update(['coupon_id' => 0]);
         $this->order(['trade_no' => 'VERIFIED-TRADE', 'status' => 4, 'deleted_at' => now()]); $this->provider($o);
@@ -289,9 +316,10 @@ final class McpOrdersPaymentsTest extends TestCase
         $this->assertSame(-1, (int) $o->fresh()->status); Queue::assertNothingPushed();
     }
 
-    public function test_recovery_never_silently_truncates_reviewed_inventory(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('recoveryTypes')]
+    public function test_recovery_never_silently_truncates_reviewed_inventory(int $type): void
     {
-        $o = $this->order(['status' => -1, 'type' => 1, 'trade_no' => '', 'info' => '', 'buy_amount' => 1001]);
+        $o = $this->order(['status' => -1, 'type' => $type, 'trade_no' => '', 'info' => '', 'buy_amount' => 1001]);
         $this->provider($o);
         $p = ['orderId' => $o->id, 'tradeNo' => 'VERIFIED-TRADE'];
         $tool = $this->tool('payments_recover_expired');
@@ -300,6 +328,55 @@ final class McpOrdersPaymentsTest extends TestCase
         }
         Http::assertNothingSent(); Queue::assertNothingPushed();
         $this->assertSame(-1, (int) $o->fresh()->status);
+    }
+
+    public function test_manual_recovery_preview_and_apply_keep_local_safety_guards(): void
+    {
+        foreach ([
+            [['deleted_at' => now()], 'order_archived'],
+            [['status' => 1], 'reconciliation_requires_expired_order'],
+            [['status' => 5], 'reconciliation_requires_expired_order'],
+            [['type' => 0], 'recovery_eligible_order_required'],
+            [['type' => 3], 'recovery_eligible_order_required'],
+            [['buy_amount' => 0], 'recovery_eligible_order_required'],
+            [['coupon_id' => 999], 'recovery_coupon_not_supported'],
+            [['coupon_ret_back' => 1], 'recovery_coupon_not_supported'],
+            [['coupon_discount_price' => '1.00'], 'recovery_coupon_not_supported'],
+            [['trade_no' => 'PRIOR-TRADE'], 'recovery_existing_payment_or_delivery'],
+            [['info' => 'Prior manual info'], 'recovery_existing_payment_or_delivery'],
+        ] as [$changes, $reason]) {
+            $o = $this->order(array_replace(['type' => 2, 'status' => -1, 'trade_no' => '', 'info' => ''], $changes));
+            $p = ['orderId' => $o->id, 'tradeNo' => 'VERIFIED-TRADE'];
+            foreach (['preview', 'apply'] as $phase) $this->reject(fn () => $this->runTool('payments_recover_expired', $p, $phase), $reason);
+            $this->assertEquals($o->getAttributes(), $o->fresh()->getAttributes());
+        }
+        Http::assertNothingSent(); Queue::assertNothingPushed();
+        $this->assertSame(3, (int) DB::table('goods')->value('in_stock'));
+        $this->assertSame(0, (int) DB::table('goods')->value('sales_volume'));
+        $this->assertSame(1, (int) DB::table('carmis')->value('status'));
+    }
+
+    public function test_exact_paid_manual_retries_preserve_fulfilment_state_without_notifications_or_stock_changes(): void
+    {
+        foreach ([2, 3, 4, 5, 6] as $status) {
+            DB::table('orders')->delete();
+            $o = $this->order(['type' => 2, 'status' => $status, 'trade_no' => 'VERIFIED-TRADE', 'info' => 'Historical manual content']);
+            $this->provider($o);
+            $p = ['orderId' => $o->id, 'tradeNo' => 'VERIFIED-TRADE'];
+            $preview = $this->runTool('payments_recover_expired', $p, 'preview');
+            $this->assertFalse($preview['mayAllocateInventory']);
+            $r = $this->runTool('payments_recover_expired', $p, 'apply');
+            $this->assertSame(0, $r['changed']);
+            $this->assertSame(in_array($status, [2, 3, 6], true), $r['manualAttentionRequired']);
+            $this->assertSame($status === 4, $r['deliveryComplete']);
+            $this->assertSame($o->getAttributes(), $o->fresh()->getAttributes());
+            $this->assertStringNotContainsString('Historical manual content', json_encode($r));
+            Http::assertSentCount(1);
+        }
+        Queue::assertNothingPushed();
+        $this->assertSame(3, (int) DB::table('goods')->value('in_stock'));
+        $this->assertSame(0, (int) DB::table('goods')->value('sales_volume'));
+        $this->assertSame(1, (int) DB::table('carmis')->value('status'));
     }
 
     public function test_callback_diagnostics_validates_signed_description_and_never_applies_payment(): void
@@ -380,6 +457,29 @@ final class McpOrdersPaymentsTest extends TestCase
         $r = $this->runTool('payments_recover_expired', ['orderId' => $o->id, 'tradeNo' => 'VERIFIED-TRADE'], 'apply');
         $this->assertSame(4, (int) $o->fresh()->status); $this->assertSame('submission_failed_after_commit', $r['notification']);
         $this->assertStringNotContainsString('PRIVATE', json_encode($r));
+    }
+
+    public function test_manual_recovery_reports_committed_pending_payment_when_notification_dispatch_fails(): void
+    {
+        $o = $this->order(['status' => -1, 'type' => 2, 'trade_no' => '', 'info' => '']);
+        $this->provider($o);
+        DB::table('emailtpls')->insert([
+            ['tpl_name' => 'Manual pending', 'tpl_token' => 'pending_order', 'tpl_content' => 'Pending'],
+            ['tpl_name' => 'Manual operator', 'tpl_token' => 'manual_send_manage_mail', 'tpl_content' => 'Manual order'],
+        ]);
+        Event::listen(OrderUpdated::class, fn () => throw new \RuntimeException('PRIVATE-QUEUE-ERROR'));
+        $p = ['orderId' => $o->id, 'tradeNo' => 'VERIFIED-TRADE'];
+        $r = $this->runTool('payments_recover_expired', $p, 'apply');
+        $this->assertSame(2, (int) $o->fresh()->status);
+        $this->assertSame('submission_failed_after_commit', $r['notification']);
+        $this->assertFalse($r['deliveryComplete']); $this->assertTrue($r['manualAttentionRequired']);
+        $this->assertStringNotContainsString('PRIVATE', json_encode($r));
+        $again = $this->runTool('payments_recover_expired', $p, 'apply');
+        $this->assertSame(0, $again['changed']);
+        $this->assertTrue($again['manualAttentionRequired']);
+        $this->assertSame(1, (int) DB::table('goods')->value('sales_volume'));
+        $this->assertSame(2, (int) DB::table('goods')->value('in_stock'));
+        $this->assertSame(1, (int) DB::table('carmis')->value('status'));
     }
 
     public function test_payment_and_refund_snapshots_bind_related_secret_and_ledger_state(): void

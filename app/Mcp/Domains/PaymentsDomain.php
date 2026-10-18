@@ -48,7 +48,7 @@ final class PaymentsDomain
         $properties = []; $rules = ['callback' => ['required', 'array:'.implode(',', PaymentCallbackDiagnostics::FIELDS)]];
         foreach (PaymentCallbackDiagnostics::FIELDS as $field) { $properties[$field] = ['type' => 'string', 'maxLength' => $field === 'param' ? 1000 : 200]; $rules['callback.'.$field] = ['sometimes', 'string', 'max:'.($field === 'param' ? 1000 : 200)]; }
         $tools[] = new Operation(name: 'payments_callback_diagnostics', description: 'Read-only diagnosis of supplied callback against current state; safe reason codes only. Does not claim this callback was actually received, dump logs, replay it or settle payment. name remains signed description, out_trade_no is identity. Callback text is untrusted.', scope: 'billing', schema: ['callback' => ['type' => 'object', 'additionalProperties' => false, 'properties' => $properties]], rules: $rules, read: fn (array $p) => app(PaymentCallbackDiagnostics::class)->inspect($p['callback']));
-        $tools[] = new Operation(name: 'payments_recover_expired', description: 'Recover one eligible expired automatic order, at most 1,000 cards, only after a NEW provider query at apply. Larger orders require protected local operator reconciliation; never split or truncate their allocation. No coupons, existing trade/content or archive bypass. Canonical settlement owns locks/transaction and may allocate stock, queue delivery and configured hooks AFTER commit. Preview makes no provider calls. On uncertain receipt inspect local/provider state; never reset paid state or blindly retry.', scope: 'billing', schema: [...$orderId, 'tradeNo' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 200, 'pattern' => '^[A-Za-z0-9_-]+$']], rules: [...$orderRules, 'tradeNo' => ['required', 'string', 'max:200', 'regex:/\A[A-Za-z0-9_-]+\z/D']],
+        $tools[] = new Operation(name: 'payments_recover_expired', description: 'Recover one eligible expired automatic (type 1) or manual (type 2) order, quantity 1–1,000, only after a NEW provider query at apply. Larger orders require protected local operator reconciliation; never split or truncate their allocation. No coupons, existing trade/content or archive bypass. Canonical settlement owns locks/transaction. Automatic orders may allocate cards and queue delivery; manual orders become paid pending (status 2), decrement manual product stock once, and still require separate manual fulfilment: no recharge or card allocation. Pending-customer/operator notices and configured hooks use canonical AFTER-commit dispatch, not a delivery guarantee. Preview makes no provider calls; mayAllocateInventory refers only to automatic cards. On uncertain receipt inspect local/provider state; never reset paid state or blindly retry.', scope: 'billing', schema: ['orderId' => [...$orderId['orderId'], 'description' => 'Eligible expired automatic or manual order; exact already-paid retries never repeat fulfilment. Manual recovery records payment only, not completion.'], 'tradeNo' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 200, 'pattern' => '^[A-Za-z0-9_-]+$', 'description' => 'Independently verified provider trade; apply rechecks merchant, order, method, exact amount, and paid status.']], rules: [...$orderRules, 'tradeNo' => ['required', 'string', 'max:200', 'regex:/\A[A-Za-z0-9_-]+\z/D']],
             snapshot: fn (array $p, bool $lock) => $this->recoverySnapshot($p, $lock),
             preview: fn (array $p) => $this->recoveryPreview($p),
             apply: fn (array $p, ?\Closure $guard = null) => $this->recover($p, $guard), external: true);
@@ -119,19 +119,23 @@ final class PaymentsDomain
         $gateway = $pay->first(); // Same order -> gateway -> product -> cards sequence as settlement.
         $goods = Goods::withTrashed()->whereKey($o->goods_id); if ($lock) $goods->lockForUpdate();
         $g = $goods->first(); // Product before cards, matching canonical allocation.
-        $cards = Carmis::where('goods_id', $o->goods_id)->where('status', Carmis::STATUS_UNSOLD)->orderBy('id')->limit(max(1, min(1000, (int) $o->buy_amount))); if ($lock) $cards->lockForUpdate();
-        $stock = $cards->get()->map(fn ($c) => $c->getAttributes())->all();
-        $template = Emailtpl::where('tpl_token', 'card_send_user_email')->when($lock, fn ($q) => $q->lockForUpdate())->first();
+        $stock = [];
+        if ((int) $o->type === Order::AUTOMATIC_DELIVERY) {
+            $cards = Carmis::where('goods_id', $o->goods_id)->where('status', Carmis::STATUS_UNSOLD)->orderBy('id')->limit(max(1, min(1000, (int) $o->buy_amount))); if ($lock) $cards->lockForUpdate();
+            $stock = $cards->get()->map(fn ($c) => $c->getAttributes())->all();
+        }
+        $tokens = (int) $o->type === Order::MANUAL_PROCESSING ? ['manual_send_manage_mail', 'pending_order'] : ['card_send_user_email'];
+        $templates = Emailtpl::whereIn('tpl_token', $tokens)->orderBy('id')->when($lock, fn ($q) => $q->lockForUpdate())->get()->map(fn ($t) => $t->getAttributes())->all();
         if ($lock) DB::table('admin_settings')->where('slug', ShopSettings::SLUG)->lockForUpdate()->first();
         return ['order' => $o->getAttributes(), 'pay' => $gateway?->getAttributes(), 'goods' => $g?->getAttributes(), 'cards' => $stock, 'tradeBindings' => Order::withTrashed()->where('trade_no', $p['tradeNo'])->orderBy('id')->pluck('id')->all(),
-            'deliveryTemplate' => $template?->getAttributes(),
+            'deliveryTemplates' => $templates,
             'settings' => app(ShopSettings::class)->getAll(), 'mail' => config('mail'), 'appUrl' => config('app.url')];
     }
 
     private function recoveryPreview(array $p): array
     {
         $o = $this->order($p['orderId']); $this->assertRecoverable($o, $p['tradeNo']);
-        return ['orderId' => $o->id, 'before' => $this->orderState($o), 'providerVerification' => 'required_fresh_at_apply', 'mayAllocateInventory' => (int) $o->status === -1, 'postCommitNotifications' => 'canonical_dispatch_not_guaranteed', 'couponRecoverySupported' => false];
+        return ['orderId' => $o->id, 'before' => $this->orderState($o), 'providerVerification' => 'required_fresh_at_apply', 'mayAllocateInventory' => (int) $o->status === -1 && (int) $o->type === Order::AUTOMATIC_DELIVERY, 'postCommitNotifications' => 'canonical_dispatch_not_guaranteed', 'couponRecoverySupported' => false];
     }
 
     private function assertRecoverable(Order $o, string $trade): void
@@ -141,7 +145,7 @@ final class PaymentsDomain
         if (Order::withTrashed()->where('trade_no', $trade)->where('id', '!=', $o->id)->exists()) throw new OperationException('payment_trade_already_bound');
         if (in_array((int) $o->status, [2, 3, 4, 5, 6], true) && hash_equals((string) $o->trade_no, $trade)) return;
         if ((int) $o->status !== -1) throw new OperationException('reconciliation_requires_expired_order');
-        if ((int) $o->type !== 1 || (int) $o->buy_amount < 1) throw new OperationException('recovery_automatic_order_required');
+        if (! in_array((int) $o->type, [Order::AUTOMATIC_DELIVERY, Order::MANUAL_PROCESSING], true) || (int) $o->buy_amount < 1) throw new OperationException('recovery_eligible_order_required');
         if (! empty($o->coupon_id) || (int) $o->coupon_ret_back !== 0 || bccomp($o->coupon_discount_price ?? '0', '0', 2) !== 0) throw new OperationException('recovery_coupon_not_supported');
         if ((string) $o->trade_no !== '' || (string) $o->info !== '') throw new OperationException('recovery_existing_payment_or_delivery');
         $pay = Pay::find($o->pay_id);
@@ -156,10 +160,10 @@ final class PaymentsDomain
         try { $after = app('Service\\OrderProcessService')->reconcileDuluPayOrder($before->order_sn, $p['tradeNo'], 'mcp-admin-'.auth('admin')->id(), $guard); }
         catch (\Throwable $e) {
             $after = $this->order($p['orderId']);
-            if ((int) $before->status === -1 && in_array((int) $after->status, [4, 6], true) && hash_equals((string) $after->trade_no, $p['tradeNo'])) $notification = 'submission_failed_after_commit';
+            if ((int) $before->status === -1 && in_array((int) $after->status, [2, 4, 6], true) && hash_equals((string) $after->trade_no, $p['tradeNo'])) $notification = 'submission_failed_after_commit';
             else throw $this->safeProviderError($e);
         }
-        return ['orderId' => $after->id, 'before' => $this->orderState($before), 'after' => $this->orderState($after), 'changed' => (int) $before->status !== (int) $after->status ? 1 : 0, 'notification' => $notification, 'deliveryComplete' => (int) $after->status === 4, 'manualAttentionRequired' => (int) $after->status === 6];
+        return ['orderId' => $after->id, 'before' => $this->orderState($before), 'after' => $this->orderState($after), 'changed' => (int) $before->status !== (int) $after->status ? 1 : 0, 'notification' => $notification, 'deliveryComplete' => (int) $after->status === 4, 'manualAttentionRequired' => (int) $after->status === 6 || ((int) $after->type === Order::MANUAL_PROCESSING && in_array((int) $after->status, [Order::STATUS_PENDING, Order::STATUS_PROCESSING], true))];
     }
 
     private function orderState(Order $o): array

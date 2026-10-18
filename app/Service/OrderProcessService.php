@@ -441,7 +441,7 @@ class OrderProcessService
                     return $order;
                 }
                 if ($actor === null || (int) $order->status !== Order::STATUS_EXPIRED
-                    || (int) $order->type !== Order::AUTOMATIC_DELIVERY
+                    || !in_array((int) $order->type, [Order::AUTOMATIC_DELIVERY, Order::MANUAL_PROCESSING], true)
                     || (int) $order->buy_amount < 1
                     || !empty($order->coupon_id) || (int) $order->coupon_ret_back !== 0
                     || bccomp($order->coupon_discount_price ?? '0', '0', 2) !== 0

@@ -174,6 +174,30 @@ $tests['parallel provider-verified recoveries fulfil once after commit']=functio
     check((int)Capsule::table('goods')->value('sales_volume')===1,'recovery duplicate sales');
     foreach(queueEvents() as $event)check(!$event['before_commit'],'recovery notification before commit');
 };
+$tests['parallel manual recoveries and callbacks record paid pending once without card allocation']=function(){
+    seed(1,3,true); Capsule::table('orders')->update(['status'=>-1]);
+    parallelWork([fn()=>recover(),fn()=>recover(),function(){check(in_array(notify(payload()),['fail','success'],true),'bad manual acknowledgment');}]);
+    check((int)Capsule::table('orders')->value('status')===Order::STATUS_PENDING,'manual recovery falsely fulfilled');
+    check(Capsule::table('orders')->value('trade_no')==='TESTTRADE1','manual payment evidence lost');
+    check(Capsule::table('orders')->value('info')==='','manual recovery wrote delivery');
+    check(sold()===0 && mailEvents()===1,'manual recovery allocated cards or repeated notices');
+    check((int)Capsule::table('goods')->value('in_stock')===2,'manual recovery duplicate stock decrement');
+    check((int)Capsule::table('goods')->value('sales_volume')===1,'manual recovery duplicate sales');
+    check(!app('Service\\OrderService')->expiredOrderSN('TESTORDER1'),'manual paid state expired');
+    foreach(queueEvents() as $event)check(!$event['before_commit'],'manual recovery notification before commit');
+};
+$tests['failed manual recovery rolls back stock and payment and releases trade lock']=function(){
+    seed(1,3,true); Capsule::table('orders')->update(['status'=>-1]);
+    $real=app('Service\\GoodsService');
+    app()->instance('Service\\GoodsService',new class extends App\Service\GoodsService {public function salesVolumeIncr(int $id,int $number=1):bool{throw new RuntimeException('synthetic manual failure');}});
+    try {recover(); throw new RuntimeException('manual recovery should fail');}catch(App\Exceptions\RuleValidationException $e){}finally{app()->instance('Service\\GoodsService',$real);}
+    check((int)Capsule::table('orders')->value('status')===-1 && Capsule::table('orders')->value('trade_no')==='','manual payment not rolled back');
+    check((int)Capsule::table('goods')->value('in_stock')===3 && (int)Capsule::table('goods')->value('sales_volume')===0,'manual stock not rolled back');
+    check(sold()===0 && count(queueEvents())===0,'manual rollback leaked effects');
+    parallelWork([fn()=>recover()]);
+    check((int)Capsule::table('orders')->value('status')===Order::STATUS_PENDING && mailEvents()===1,'manual retry failed after rollback');
+    check((int)Capsule::table('goods')->value('in_stock')===2 && sold()===0,'manual retry inventory effects');
+};
 $tests['callback versus recovery never duplicates delivery']=function(){
     seed(); Capsule::table('orders')->update(['status'=>-1]);
     parallelWork([fn()=>recover(),function(){check(in_array(notify(payload()),['fail','success'],true),'bad acknowledgment');}]);
