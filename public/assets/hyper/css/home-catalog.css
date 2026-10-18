@@ -80,6 +80,11 @@
 }
 .shop-product-price {
     gap: 4px;
+    flex-wrap: wrap;
+}
+.shop-product-price > :last-child {
+    margin-left: auto;
+    flex-shrink: 0;
 }
 .shop-product-price > :first-child {
     white-space: nowrap;

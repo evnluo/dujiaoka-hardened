@@ -78,7 +78,7 @@ async function geometry(page) {
         images: [...document.querySelectorAll('.shop-product-media img')].map(i => {
             const r = i.getBoundingClientRect(); return { top: r.top + scrollY, width: r.width, height: r.height, opacity: getComputedStyle(i).opacity, transition: getComputedStyle(i).transitionDuration, complete: i.complete, naturalWidth: i.naturalWidth };
         }),
-        clippedDetails: [...document.querySelectorAll('.shop-product-details')].some(el => el.scrollWidth > el.clientWidth + 1),
+        clippedDetails: [...document.querySelectorAll('.shop-product-details, .shop-product-price')].some(el => el.scrollWidth > el.clientWidth + 1),
     }));
 }
 async function instrument(page) {

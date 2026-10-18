@@ -1,6 +1,6 @@
 @extends('hyper.layouts.default')
 @section('content')
-<link rel="stylesheet" href="/assets/hyper/css/home-catalog.css?v=1">
+<link rel="stylesheet" href="/assets/hyper/css/home-catalog.css?v=2">
 <div class="my-4 sm:my-8">
     <div class="flex flex-col items-center justify-center">
         <div class="w-full prose prose-zinc max-w-4xl prose-headings:mt-2 prose-headings:mb-0 prose-p:mt-0 prose-p:mb-2 prose-img:my-2 prose-a:text-zinc-600">
