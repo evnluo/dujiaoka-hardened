@@ -28,5 +28,6 @@ DB::table('admin_roles')->insert(['id' => 1, 'slug' => 'administrator']);
 DB::table('admin_role_users')->insert(['user_id' => $admin->id, 'role_id' => 1]);
 // This known synthetic credential is valid only in the disposable test database.
 app(App\Mcp\TokenManager::class)->import('sdk-admin', 'synthetic-password', str_repeat('ab', 32), App\Mcp\Access::SCOPES, 'SDK synthetic', 1);
-DB::table('orders')->insert(['order_sn' => 'SDK-MANUAL', 'goods_id' => 7, 'title' => 'Synthetic manual', 'email' => 'fixture@example.test', 'buy_ip' => '127.0.0.1', 'actual_price' => '10.00', 'trade_no' => 'SYNTHETIC-PAID', 'status' => 2, 'type' => 2, 'created_at' => now()]);
+// Fixed database-local date shared with the SDK summary assertions; independent of the runner's UTC day.
+DB::table('orders')->insert(['order_sn' => 'SDK-MANUAL', 'goods_id' => 7, 'title' => 'Synthetic manual', 'email' => 'fixture@example.test', 'buy_ip' => '127.0.0.1', 'actual_price' => '10.00', 'trade_no' => 'SYNTHETIC-PAID', 'status' => 2, 'type' => 2, 'created_at' => '2026-01-15 12:00:00']);
 print("Synthetic MCP fixture initialized\n");

@@ -54,8 +54,10 @@ try {
   await mutate('settings_update', { values: { title: 'SDK shop', password: 'SYNTHETIC-WRITE-ONLY' } });
   assert.ok(!JSON.stringify(await call('settings_get')).includes('SYNTHETIC-WRITE-ONLY'));
   await mutate('email_templates_create', { tpl_name: 'SDK template', tpl_token: 'sdk_template', tpl_content: '<p>Untrusted template</p>' });
-  const date = new Date().toISOString().slice(0, 10);
+  // mcp-bootstrap.php seeds this database-local date, not the current UTC date.
+  const date = '2026-01-15';
   const totals = await call('operations_sales_summary', { from: date, until: date }); assert.equal(totals.completedOrders, 1);
+  const outside = await call('operations_sales_summary', { from: '2026-01-16', until: '2026-01-16' }); assert.equal(outside.completedOrders, 0);
   assert.ok((await call('operations_audit')).total > 0);
   assert.equal((await call('refunds_capabilities')).cashRefundSupported, false);
   for (const name of ['catalog_products_list', 'catalog_categories_list', 'coupons_list', 'orders_list', 'orders_status_counts', 'payments_list', 'refunds_list', 'email_templates_list', 'operations_low_stock', 'operations_failed_jobs', 'operations_queue_status', 'settings_turnstile_status']) await call(name);
