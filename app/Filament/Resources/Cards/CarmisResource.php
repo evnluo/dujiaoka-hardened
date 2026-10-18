@@ -26,6 +26,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 use UnitEnum;
 
 class CarmisResource extends ShopResource
@@ -71,8 +73,9 @@ class CarmisResource extends ShopResource
             ->columns([
                 TextColumn::make('id')->label('库存 ID')->sortable()->searchable(),
                 TextColumn::make('goods.gd_name')->label('商品')->searchable()->wrap(),
-                TextColumn::make('carmi')->label('卡密内容')->limit(160)->wrap()->lineClamp(4)
-                    ->extraAttributes(['style' => 'white-space: pre-wrap; overflow-wrap: anywhere; min-width: 12rem; max-width: 28rem'])
+                TextColumn::make('carmi')->label('卡密内容')->wrap()->lineClamp(4)
+                    ->formatStateUsing(fn (string $state): HtmlString => new HtmlString('<span class="shop-card-preview">'.e(Str::limit($state, 160)).'</span>'))
+                    ->extraAttributes(['class' => 'shop-card-content'])
                     ->copyable()->copyableState(fn (Carmis $record): string => (string) $record->carmi)
                     ->copyMessage('已复制完整卡密')->tooltip('点击复制完整内容；查看全文请用「查看」'),
                 TextColumn::make('status')->label('状态')->badge()->formatStateUsing(fn ($state) => (int) $state === 1 ? '未售出' : '已售出')

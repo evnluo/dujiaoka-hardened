@@ -618,7 +618,7 @@ class FilamentAdminTest extends TestCase
             $column = $page->instance()->getTable()->getColumn('carmi')->record($card);
             $this->assertTrue($column->isCopyable($content));
             $this->assertSame($content, $column->getCopyableState($content));
-            $this->assertLessThan(mb_strlen($content), mb_strlen($column->formatState($content)));
+            $this->assertLessThan(mb_strlen($content), mb_strlen((string) $column->formatState($content)));
             Livewire::test(ManageCards::class)->mountAction(TestAction::make('edit')->table($card))
                 ->assertActionDataSet(['carmi' => $content]);
             Livewire::test(ManageCards::class)->callAction(TestAction::make('edit')->table($card), data: ['carmi' => "EDITED-$status-$loop"])
@@ -627,6 +627,19 @@ class FilamentAdminTest extends TestCase
             $this->assertSame($status, (int) $card->fresh()->status);
             $this->assertSame($loop, (int) $card->fresh()->is_loop);
         }
+    }
+
+    public function test_inventory_preview_preserves_literal_lines_without_rendering_markup_or_template_whitespace(): void
+    {
+        $content = "FIRST <script>alert(1)</script>\n  SECOND & \"quoted\"\n".str_repeat('尾部', 120);
+        DB::table('carmis')->where('id', 501)->update(['carmi' => $content]);
+        $page = Livewire::test(ManageCards::class);
+        $column = $page->instance()->getTable()->getColumn('carmi')->record(Carmis::find(501));
+        $expected = '<span class="shop-card-preview">'.e(\Illuminate\Support\Str::limit($content, 160)).'</span>';
+        $this->assertSame($expected, (string) $column->formatState($content));
+        $this->assertSame($content, $column->getCopyableState($content));
+        $this->assertSame(['class' => 'shop-card-content'], $column->getExtraAttributes());
+        $page->assertSeeHtml($expected)->assertDontSee('<script>alert(1)</script>', escape: false);
     }
 
     public function test_goods_archiving_preserves_card_history_and_nonempty_group_is_blocked(): void
