@@ -115,6 +115,36 @@ final class InventoryOperations
         });
     }
 
+    /** Permanent exact-selection deletion; preview takes the same locks and eligibility path. */
+    public static function delete(array $ids, bool $write = true): int
+    {
+        AdminAccess::authorize();
+        $ids = BulkResult::ids($ids);
+
+        return DB::transaction(function () use ($ids, $write): int {
+            // Routing hints only; current card reads below must belong to a locked parent.
+            $goodsIds = Carmis::withTrashed()->whereKey($ids)->pluck('goods_id')->unique()->sort()->values()->all();
+            $lockedIds = Goods::withTrashed()->whereKey($goodsIds)->orderBy('id')->lockForUpdate()->pluck('id')->all();
+            $cards = Carmis::withTrashed()->whereKey($ids)->orderBy('goods_id')->orderBy('id')->lockForUpdate()
+                ->get(['id', 'goods_id', 'status', 'is_loop', 'deleted_at']);
+            if ($cards->count() !== count($ids) || $cards->contains(fn (Carmis $card): bool => ! in_array($card->goods_id, $lockedIds))) {
+                throw ValidationException::withMessages(['selection' => '所选卡密或所属商品已变化，请刷新后重新选择。本次未删除。']);
+            }
+            if ($cards->contains(fn (Carmis $card): bool => ! $card->trashed() && (int) $card->status === Carmis::STATUS_UNSOLD && (int) $card->is_loop === 1)) {
+                throw ValidationException::withMessages(['selection' => '所选记录包含未售出的循环库存，本次未删除。']);
+            }
+            // Only this table: no model deletion listeners, parent deletion, or status transition.
+            if ($write) {
+                $deleted = Carmis::withTrashed()->whereKey($ids)->forceDelete();
+                if ($deleted !== count($ids)) {
+                    throw ValidationException::withMessages(['selection' => '所选卡密已变化，本次未删除。']);
+                }
+            }
+
+            return $cards->count();
+        });
+    }
+
     public static function archive(array $ids): int
     {
         AdminAccess::authorize();

@@ -132,7 +132,7 @@ namespace {
             if ($pauseAfterWrite) {
                 $paused = false;
                 DB::listen(function (QueryExecuted $query) use ($socket, &$paused): void {
-                    if (! $paused && preg_match('/^(update|insert into) `carmis`/i', $query->sql)) {
+                    if (! $paused && preg_match('/^(update|insert into|delete from) `carmis`/i', $query->sql)) {
                         $paused = true;
                         check(DB::transactionLevel() > 0, 'inventory write escaped transaction');
                         send($socket, ['stage' => 'written']);
@@ -143,6 +143,8 @@ namespace {
             if ($operation === 'fulfil') {
                 $order = app('Service\\OrderProcessService')->completedOrder('BULK-RACE', 10, 'SYNTHETIC-TRADE');
                 $result = ['outcome' => 'fulfilled', 'status' => (int) $order->status];
+            } elseif ($operation === 'delete') {
+                $result = ['outcome' => 'deleted', 'count' => InventoryOperations::delete([$cardId])];
             } elseif (in_array($operation, ['used', 'unused', 'loopOn', 'loopOff', 'multiOn', 'multiOff'], true)) {
                 $ids = str_starts_with($operation, 'multi') ? ($operation === 'multiOn' ? [601, 501] : [501, 601]) : [501];
                 $counts = in_array($operation, ['used', 'unused'], true)
@@ -279,10 +281,23 @@ namespace {
             send($first['socket'], ['stage' => 'commit']);
             $ar = receive($first['socket'])['result'];
             $br = receive($second['socket'])['result'];
-            check(in_array($ar['outcome'], ['fulfilled', 'set'], true) && ($ar['skipped'] ?? 0) === 0, 'first writer failed: '.json_encode($ar));
-            check(in_array($br['outcome'], ['fulfilled', 'set'], true) && ($br['skipped'] ?? 0) === 0, 'second writer failed: '.json_encode($br));
+            check(in_array($ar['outcome'], ['fulfilled', 'set', 'deleted'], true) && ($ar['skipped'] ?? 0) === 0, 'first writer failed: '.json_encode($ar));
+            $deleteRejected = $secondOperation === 'delete' && in_array($firstOperation, ['delete', 'loopOn'], true);
+            check(in_array($br['outcome'], $deleteRejected ? ['rejected'] : ['fulfilled', 'set', 'deleted'], true) && ($br['skipped'] ?? 0) === 0, 'second writer failed: '.json_encode($br));
             DB::disconnect();
-            if (str_starts_with($firstOperation, 'multi')) {
+            if ($firstOperation === 'delete' || $secondOperation === 'delete') {
+                if ($firstOperation === 'loopOn') {
+                    check(Carmis::find(501) !== null && (int) Carmis::find(501)->is_loop === 1, 'delete ignored current reusable-stock protection');
+                } else {
+                    check(Carmis::withTrashed()->find(501) === null, 'selected card was not permanently deleted');
+                }
+                check(Carmis::find(502) !== null && Carmis::find(601) !== null, 'unselected stock deleted');
+                if ($firstOperation === 'fulfil' || $secondOperation === 'fulfil') {
+                    check(DB::table('orders')->value('info') === ($firstOperation === 'delete' ? 'SYNTHETIC-ORIGINAL-502' : 'SYNTHETIC-ORIGINAL-501'), 'delete lost or changed historical delivery');
+                    check((int) DB::table('orders')->value('status') === 4, 'fulfilment failed');
+                    check((int) DB::table('goods')->where('id', 7)->value('sales_volume') === 1, 'sale count changed');
+                }
+            } elseif (str_starts_with($firstOperation, 'multi')) {
                 check(Carmis::whereIn('id', [501, 601])->where('is_loop', 0)->count() === 2, 'overlapping multi-product setter lost an update');
                 check($ar['changed'] === 2 && $br['changed'] === 2, 'multi-product counts are inaccurate');
             } else {
@@ -304,6 +319,12 @@ namespace {
     }
 
     $tests = [];
+    foreach ([['fulfil', 'delete'], ['delete', 'fulfil'], ['delete', 'delete'], ['loopOn', 'delete']] as [$first, $second]) {
+        $tests["delete race $first / $second"] = fn () => bulkRace($first, $second, 0);
+        if ($second !== 'fulfil') {
+            $tests["delete race $first / $second with old RR snapshot"] = fn () => bulkRace($first, $second, 0, true);
+        }
+    }
     foreach ([['fulfil', 'loopOn', 0], ['fulfil', 'loopOff', 1], ['loopOn', 'fulfil', 0], ['loopOff', 'fulfil', 1], ['fulfil', 'unused', 0], ['fulfil', 'used', 1], ['used', 'fulfil', 0], ['unused', 'fulfil', 0], ['multiOn', 'multiOff', 0]] as [$first, $second, $loop]) {
         $tests["bulk $first / $second"] = fn () => bulkRace($first, $second, $loop);
         if ($second !== 'fulfil') {

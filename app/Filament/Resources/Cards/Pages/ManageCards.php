@@ -6,6 +6,9 @@ use Filament\Actions\Action;
 use Filament\Resources\Pages\ManageRecords;
 class ManageCards extends ManageRecords
 {
+    #[\Livewire\Attributes\Locked]
+    public array $deletionIds = [];
+
     protected static string $resource = CarmisResource::class;
     protected ?string $subheading = '点击卡密复制完整内容。编辑保留销售状态和历史交付；归档与恢复仅适用于未售出的非循环库存。';
     protected function getHeaderActions(): array

@@ -61,6 +61,9 @@ final class InventoryDomain
                 scope: 'inventory', schema: C::idsSchema() + ['enabled' => ['type' => 'boolean']], rules: C::idsRules() + ['enabled' => ['required', 'boolean']],
                 snapshot: Inventory::snapshot(...), preview: fn (array $p) => Inventory::setField($p, 'is_loop', false), apply: fn (array $p) => Inventory::setField($p, 'is_loop', true)),
         ];
+        $tools[] = new Operation(name: 'inventory_cards_delete', description: 'Permanently delete 1–1,000 exact inventory card IDs, including sold and archived records. Irreversible. Reject the entire selection if any ID is missing or is active unused cycling stock. Orders, payments and historical delivery text are preserved. No content is returned.'.self::UNTRUSTED,
+            scope: 'inventory', schema: C::idsSchema(), rules: C::idsRules(), snapshot: Inventory::snapshot(...),
+            preview: fn (array $p) => Inventory::delete($p, false), apply: fn (array $p) => Inventory::delete($p, true), destructive: true);
         foreach ([false, true] as $restore) {
             $tools[] = new Operation(name: 'inventory_cards_'.($restore ? 'restore' : 'archive'), description: ($restore ? 'Restore' : 'Archive').' up to 1,000 exact cards. Only unused noncycling stock is eligible; a single ineligible changed target rejects the entire selection. Missing targets are reported. History is preserved.'.self::UNTRUSTED,
                 scope: 'inventory', schema: C::idsSchema(), rules: C::idsRules(), snapshot: Inventory::snapshot(...),

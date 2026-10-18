@@ -122,6 +122,13 @@ final class AdminInventoryService
         return C::outcomes($ids, $outcomes);
     }
 
+    public static function delete(array $p, bool $write): array
+    {
+        $ids = Input::ids($p['ids']);
+        $count = InventoryOperations::delete($ids, $write);
+        return ['ids' => $ids, 'count' => $count, 'permanent' => true, 'changed' => $count, 'unchanged' => 0, 'skipped' => 0];
+    }
+
     public static function archive(array $p, bool $restore, bool $write): array
     {
         AdminAccess::authorize();

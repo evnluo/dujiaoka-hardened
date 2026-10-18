@@ -2,7 +2,7 @@
 
 ## Endpoint and access
 
-`POST https://<shop>/api/admin/mcp` is the official `laravel/mcp` Streamable HTTP transport. It is stateless (no MCP session persistence, SSE subscription or DELETE session lifecycle); authenticated GET returns 405, unsupported methods return 405, and unauthenticated requests of every method return 401. Initialize normally, then paginate `tools/list`; there are currently **73 semantic tools**. The official TypeScript SDK smoke exercises real initialize/list/call behavior, not local tool stubs.
+`POST https://<shop>/api/admin/mcp` is the official `laravel/mcp` Streamable HTTP transport. It is stateless (no MCP session persistence, SSE subscription or DELETE session lifecycle); authenticated GET returns 405, unsupported methods return 405, and unauthenticated requests of every method return 401. Initialize normally, then paginate `tools/list`; there are currently **74 semantic tools**. The official TypeScript SDK smoke exercises real initialize/list/call behavior, not local tool stubs.
 
 Bearer authentication is mandatory; an admin browser session is never accepted. Revoked/expired tokens, removed admins and loss of the `administrator` role deny access. Authorization is rechecked at tool invocation and mutation execution. Scopes are exact: `read`, `catalog`, `inventory`, `inventory:content`, `orders`, `orders:content`, `billing`, `settings`, `operations`. No wildcard, credential-management tool or arbitrary model/action dispatcher exists. Content scopes are deliberately separate: card contents remain viewable/editable, including sold/looping cards, without rewriting historical deliveries.
 
@@ -50,7 +50,17 @@ Intentional explicit rejections, not simulated support:
 - `refunds_provider_refund`: no trusted refund API/credential contract is present. `refunds_record_external` records an already-completed external refund, caps cumulative refund value, and never moves money or changes delivery/payment state.
 - `settings_turnstile_update`: server-owned environment configuration is read-only through MCP. Read configured/enabled metadata with `settings_turnstile_status`; change environment through the deployment path.
 - `operations_retry_job`: arbitrary historical serialized jobs cannot prove duplicate-safety. Failed-job metadata is readable, but payloads/exceptions are not exposed or deserialized. Use the explicit reviewed resend operation where appropriate.
-- Legacy payment routes remain read-only; only supported YiPay configuration can be created/edited. Card/product/coupon deletion uses safe archive/restore rather than destructive deletion. No credential administration, arbitrary shell/SQL/URLs, app restarts or environment writer.
+- Legacy payment routes remain read-only; only supported YiPay configuration can be created/edited. Products/coupons use archive/restore. Inventory additionally has explicit permanent deletion as described below. No credential administration, arbitrary shell/SQL/URLs, app restarts or environment writer.
+
+### Permanent inventory deletion
+
+`inventory_cards_delete` requires `inventory` scope and 1–1,000 distinct exact integer `ids`, plus the standard `reason`, preview and apply fields. It permanently removes those inventory rows, including sold and archived cards. The plan reports exact sorted IDs, count and `permanent:true`, without card contents. A missing card/product or any active, unused cycling card rejects the whole batch. Archive/restore eligibility is unchanged; never reset sold cards to unused as a deletion workaround.
+
+Review the complete selection before applying. Reuse the identical payload and stable idempotency key on uncertain retries, then inspect `operations_receipt`. A changed card (including content, status, cycling or archive state) invalidates the preview. An existing successful receipt replays even though the deleted rows no longer exist. Verify removal with `inventory_cards_list` using `archived:all`, or the exact-ID metadata getter's not-found result.
+
+The shared service locks products in ascending order before current-reading/locking cards and deletes only `carmis` rows in one transaction. It does not change order/payment rows, delivered text in `orders.info`, sales totals, or customer notifications. It does not retain deleted inventory content or a content tombstone; removing a row also removes that row's contribution to inventory duplicate detection. Historical delivered text remains on the order.
+
+Filament offers separate row and bulk Delete actions with permanent-delete wording, affected count and confirmation. Active reusable stock is rejected by the service, not merely hidden in the UI. No broad delete-all query is available through MCP. Live cleanup requires a separate reviewed selection; historical sold counts alone are not evidence that every row is a duplicate.
 
 ## Verification and deployment handoff
 

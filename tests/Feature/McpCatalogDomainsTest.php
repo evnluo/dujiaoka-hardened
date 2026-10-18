@@ -92,7 +92,7 @@ class McpCatalogDomainsTest extends TestCase
     {
         $operations = array_merge((new CatalogDomain())->tools(), (new InventoryDomain())->tools(), (new CouponsDomain())->tools());
         $names = array_column($operations, 'name');
-        $this->assertCount(34, $operations);
+        $this->assertCount(35, $operations);
         $this->assertCount(count(array_unique($names)), $names);
         preg_match_all('/`((?:catalog_|inventory_|coupons_)[a-z_]+)`/', file_get_contents(base_path('docs/shop-mcp-catalog-matrix.md')), $matches);
         $matrixNames = array_values(array_unique($matches[1]));

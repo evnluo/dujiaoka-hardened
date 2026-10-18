@@ -107,6 +107,13 @@ class CarmisResource extends ShopResource
                         Notification::make()->title('卡密已归档')->success()->send();
                     }),
                 RestoreAction::make()->button()->outlined()->label('恢复到库存'),
+                Action::make('delete')->button()->outlined()->label('删除')->color('danger')->requiresConfirmation()
+                    ->modalHeading('永久删除 1 条卡密')->modalDescription('删除后无法恢复。历史订单和已交付内容保留。')
+                    ->modalSubmitActionLabel('永久删除')
+                    ->action(function (Carmis $record): void {
+                        ActionFeedback::run(fn () => InventoryOperations::delete([$record->id]));
+                        Notification::make()->title('已删除 1 条卡密')->success()->send();
+                    }),
             ])->maxSelectableRecords(1000)->toolbarActions([BulkActionGroup::make([
                 BulkActionGroup::make([
                     self::stockAction('markUsed', '标记已使用', Carmis::STATUS_SOLD, '从可销售库存中移出；不改动循环设置、卡密内容或历史订单。'),
@@ -121,6 +128,19 @@ class CarmisResource extends ShopResource
                     ->action(function (Collection $records): void {
                         $count = ActionFeedback::run(fn () => InventoryOperations::archive($records->modelKeys()));
                         Notification::make()->title("已归档 {$count} 条卡密")->success()->send();
+                    })->deselectRecordsAfterCompletion(),
+                BulkAction::make('delete')->label('删除所选卡密')->color('danger')->fetchSelectedRecords(false)->requiresConfirmation()
+                    ->mountUsing(function ($livewire): void {
+                        $livewire->deletionIds = ActionFeedback::run(fn () => \App\Filament\Support\BulkResult::ids(BulkSelection::ids($livewire)));
+                    })
+                    ->modalHeading(fn ($livewire): string => '永久删除 '.count($livewire->deletionIds).' 条卡密')
+                    ->modalDescription('删除后无法恢复。历史订单和已交付内容保留。未售出的循环库存不能删除。')
+                    ->modalSubmitActionLabel('永久删除')
+                    ->action(function ($livewire): void {
+                        $count = ActionFeedback::run(fn () => InventoryOperations::delete($livewire->deletionIds));
+                        Notification::make()->title("已删除 {$count} 条卡密")->success()->send();
+                        $livewire->deletionIds = [];
+                        BulkSelection::clear($livewire);
                     })->deselectRecordsAfterCompletion(),
                 BulkAction::make('export')->label('下载所选卡密')->icon('heroicon-o-arrow-down-tray')
                     ->modalDescription('文件包含所选卡密明文，每行一条。最多下载 1,000 条，请妥善保管。')
