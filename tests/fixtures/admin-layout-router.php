@@ -40,6 +40,8 @@ foreach (range(1, 30) as $id) {
         'title' => '示例订阅 · 标准版', 'email' => "customer$id@example.test", 'buy_ip' => '127.0.0.1',
         'type' => $id % 3 === 0 ? 2 : 1, 'status' => $id % 3 === 0 ? 2 : 4,
         'trade_no' => "SYNTHETIC-TRADE-$id", 'actual_price' => '29.90', 'total_price' => '29.90',
+        'info' => "客户提交：customer$id@example.test\n  历史交付：SYNTHETIC-DELIVERY-$id\n<script>window.syntheticExecuted = true</script>\n".str_repeat('long-synthetic-content-', 12),
+        'search_pwd' => "SYNTHETIC-LOOKUP-$id",
         'goods_price' => '29.90', 'pay_id' => 14, 'created_at' => '2026-10-18 10:00:00', 'updated_at' => '2026-10-18 10:00:00',
     ]);
 }

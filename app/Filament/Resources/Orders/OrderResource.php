@@ -17,11 +17,12 @@ use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
-use Filament\Tables\Filters\TrashedFilter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\HtmlString;
 use UnitEnum;
 
 class OrderResource extends ShopResource
@@ -43,7 +44,7 @@ class OrderResource extends ShopResource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()->withoutGlobalScopes([SoftDeletingScope::class])
-            ->select(['orders.id', 'order_sn', 'goods_id', 'coupon_id', 'title', 'type', 'goods_price', 'buy_amount', 'coupon_discount_price', 'wholesale_discount_price', 'total_price', 'actual_price', 'email', 'pay_id', 'buy_ip', 'trade_no', 'status', 'coupon_ret_back', 'orders.created_at', 'orders.updated_at', 'orders.deleted_at'])
+            ->select(['orders.id', 'order_sn', 'goods_id', 'coupon_id', 'title', 'type', 'goods_price', 'buy_amount', 'coupon_discount_price', 'wholesale_discount_price', 'total_price', 'actual_price', 'email', 'pay_id', 'buy_ip', 'trade_no', 'status', 'coupon_ret_back', 'info', 'search_pwd', 'orders.archived_at', 'orders.created_at', 'orders.updated_at', 'orders.deleted_at'])
             ->with([
                 'goods' => fn ($q) => $q->withTrashed()->select('id', 'gd_name'),
                 'pay' => fn ($q) => $q->withTrashed()->select('id', 'pay_name'),
@@ -78,13 +79,18 @@ class OrderResource extends ShopResource
                 ])->query(fn (Builder $query, array $data) => $query
                     ->when($data['from'] ?? null, fn (Builder $q, $date) => $q->whereDate('orders.created_at', '>=', $date))
                     ->when($data['until'] ?? null, fn (Builder $q, $date) => $q->whereDate('orders.created_at', '<=', $date))),
-                TrashedFilter::make()->label('历史归档'),
+                TernaryFilter::make('trashed')->label('历史归档')->placeholder('未归档')->trueLabel('全部（含归档）')->falseLabel('仅归档')
+                    ->queries(
+                        true: fn (Builder $query) => $query,
+                        false: fn (Builder $query) => $query->where(fn (Builder $q) => $q->whereNotNull('orders.archived_at')->orWhereNotNull('orders.deleted_at')),
+                        blank: fn (Builder $query) => $query->whereNull('orders.archived_at')->whereNull('orders.deleted_at'),
+                    ),
             ])->recordActions([
-                ViewAction::make()->button()->outlined()->label('详情'),
+                ViewAction::make()->modal()->button()->outlined()->label('详情'),
                 OrderActions::processing()->button()->outlined(),
-                ActionGroup::make([OrderActions::complete(), OrderActions::fail(), OrderActions::download()])->button()->outlined()->color('gray')->label('更多操作'),
+                ActionGroup::make([OrderActions::complete(), OrderActions::fail(), OrderActions::download(), OrderActions::archive(), OrderActions::restore()])->button()->outlined()->color('gray')->label('更多操作'),
             ])->maxSelectableRecords(1000)->toolbarActions([
-                BulkActionGroup::make([OrderActions::bulkComplete(), OrderActions::bulkFail()])->label('批量交付状态'),
+                BulkActionGroup::make([OrderActions::bulkComplete(), OrderActions::bulkFail(), OrderActions::bulkArchive(), OrderActions::bulkRestore()])->label('批量操作'),
             ])->emptyStateHeading('没有匹配的订单')->emptyStateDescription('可以调整筛选条件或搜索订单号、邮箱、渠道交易号。');
     }
 
@@ -118,14 +124,18 @@ class OrderResource extends ShopResource
                     ]),
                 ]),
             ]),
+            Section::make('订单内容')->schema([
+                TextEntry::make('info')->label('客户提交信息 / 历史交付内容')->placeholder('暂无内容')->copyable()->copyableState(fn (Order $record) => $record->info)
+                    ->formatStateUsing(fn ($state) => new HtmlString('<span class="shop-order-content">'.e($state).'</span>')),
+                TextEntry::make('search_pwd')->label('查询密码')->placeholder('未设置')->copyable()->copyableState(fn (Order $record) => $record->search_pwd)
+                    ->formatStateUsing(fn ($state) => new HtmlString('<span class="shop-order-content">'.e($state).'</span>')),
+            ]),
             Section::make('记录信息')->collapsible()->collapsed()->schema([
                 TextEntry::make('created_at')->label('下单时间')->inlineLabel()->dateTime('Y-m-d H:i:s'),
                 TextEntry::make('updated_at')->label('最后更新')->inlineLabel()->dateTime('Y-m-d H:i:s'),
                 TextEntry::make('buy_ip')->label('下单 IP')->inlineLabel()->copyable(),
-                TextEntry::make('deleted_at')->label('历史归档时间')->inlineLabel()->dateTime('Y-m-d H:i')->placeholder('未归档'),
-            ]),
-            Section::make('敏感订单内容')->schema([
-                TextEntry::make('protected_details')->hiddenLabel()->state('客户提交信息、交付卡密与查询密码不在页面中加载。需要核查时，使用「下载完整详情」并验证管理员密码。'),
+                TextEntry::make('archived_at')->label('归档时间')->inlineLabel()->dateTime('Y-m-d H:i')->placeholder('未归档'),
+                TextEntry::make('deleted_at')->label('旧版删除时间')->inlineLabel()->dateTime('Y-m-d H:i')->visible(fn (Order $record) => $record->trashed()),
             ]),
         ]);
     }

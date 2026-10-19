@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Orders;
 
 use App\Filament\Support\ActionFeedback;
+use App\Filament\Support\AdminAccess;
 use App\Filament\Support\BulkSelection;
 use App\Filament\Support\OrderOperations;
 use App\Filament\Support\OrderState;
@@ -79,7 +80,8 @@ final class OrderActions
             ->action(function (Order $record, array $data) use ($target): void {
                 $notifyCustomer = $target === 5 || (bool) ($data['notify_customer'] ?? false);
                 $updated = ActionFeedback::run(fn () => OrderOperations::fulfil($record->id, $target, $data['message'], $notifyCustomer));
-                // Refresh visible state without hydrating protected order details into Livewire.
+                // Show the newly appended historical result immediately.
+                $record->info = $updated->info;
                 $record->status = $updated->status;
                 $record->updated_at = $updated->updated_at;
                 Notification::make()->title('交付状态已更新')
@@ -90,12 +92,53 @@ final class OrderActions
     public static function download(): Action
     {
         return Action::make('downloadDetails')->label('下载完整详情')->icon('heroicon-o-arrow-down-tray')->color('gray')
-            ->modalDescription('文件包含客户提交信息、交付内容和查询密码。验证后下载，请勿公开分享。')
-            ->schema([SensitiveActions::passwordField()])
-            ->action(function (Order $record, array $data) {
-                SensitiveActions::confirm($data);
+            ->action(function (Order $record) {
+                AdminAccess::authorize();
                 $order = Order::withTrashed()->findOrFail($record->id);
                 return SensitiveActions::download('order-'.$order->order_sn.'.txt', "订单：{$order->order_sn}\n查询密码：{$order->search_pwd}\n\n{$order->info}");
             });
+    }
+
+    public static function archive(): Action
+    {
+        return self::archiveAction(true);
+    }
+
+    public static function restore(): Action
+    {
+        return self::archiveAction(false);
+    }
+
+    private static function archiveAction(bool $archive): Action
+    {
+        return Action::make($archive ? 'archive' : 'restore')->label($archive ? '归档订单' : '恢复订单')
+            ->icon($archive ? 'heroicon-o-archive-box' : 'heroicon-o-arrow-uturn-left')->color('gray')->requiresConfirmation()
+            ->modalDescription($archive ? '从默认列表收起。客户查询、支付与交付不受影响，可随时恢复。' : '恢复到默认订单列表，不改变支付或交付状态。')
+            ->visible(fn (Order $record) => ! $record->trashed() && ($archive ? $record->archived_at === null : $record->archived_at !== null))
+            ->action(function (Order $record) use ($archive): void {
+                ActionFeedback::run(fn () => OrderOperations::setArchived([$record->id], $archive))->send();
+                $record->refresh();
+            });
+    }
+
+    public static function bulkArchive(): BulkAction
+    {
+        return self::bulkArchiveAction(true);
+    }
+
+    public static function bulkRestore(): BulkAction
+    {
+        return self::bulkArchiveAction(false);
+    }
+
+    private static function bulkArchiveAction(bool $archive): BulkAction
+    {
+        return BulkAction::make($archive ? 'bulkArchive' : 'bulkRestore')->label($archive ? '归档所选订单' : '恢复所选订单')
+            ->color('gray')->fetchSelectedRecords(false)->requiresConfirmation()
+            ->modalDescription(fn ($livewire) => '已选 '.count(BulkSelection::ids($livewire)).' 条。仅调整后台列表归档，不改变客户查询、支付或交付，不发送通知。')
+            ->action(function ($livewire) use ($archive): void {
+                ActionFeedback::run(fn () => OrderOperations::setArchived(BulkSelection::ids($livewire), $archive))->send();
+                BulkSelection::clear($livewire);
+            })->deselectRecordsAfterCompletion();
     }
 }

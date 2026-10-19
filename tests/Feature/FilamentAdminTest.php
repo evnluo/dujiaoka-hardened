@@ -312,29 +312,29 @@ class FilamentAdminTest extends TestCase
         $this->assertSame('Updated shop', app(ShopSettings::class)->get('title'));
     }
 
-    public function test_order_view_never_hydrates_card_content_or_lookup_password(): void
+    public function test_order_view_shows_historical_content_and_lookup_password(): void
     {
         $order = $this->order(['info' => 'SYNTHETIC-DELIVERY-SECRET', 'search_pwd' => 'SYNTHETIC-LOOKUP-SECRET']);
         Livewire::test(ViewOrder::class, ['record' => $order->id])->assertOk()
-            ->assertDontSee('SYNTHETIC-DELIVERY-SECRET')->assertDontSee('SYNTHETIC-LOOKUP-SECRET');
+            ->assertSee('SYNTHETIC-DELIVERY-SECRET')->assertSee('SYNTHETIC-LOOKUP-SECRET');
         $this->assertFalse(OrderResource::canCreate());
         $this->assertFalse(OrderResource::canDelete($order));
         $this->assertFalse(OrderResource::canEdit($order));
     }
 
-    public function test_order_secrets_are_excluded_after_livewire_hydration_and_inherited_calls(): void
+    public function test_order_contents_remain_visible_after_livewire_hydration_and_inherited_calls(): void
     {
         $order = $this->order(['info' => 'SYNTHETIC-DELIVERY-SECRET', 'search_pwd' => 'SYNTHETIC-LOOKUP-SECRET']);
         foreach (['getRecord', 'getBaseRecord', 'getWidgetData'] as $method) {
             $page = Livewire::test(ViewOrder::class, ['record' => $order->id])->call($method)->assertOk();
             $payload = json_encode([$page->effects, $page->snapshot], JSON_THROW_ON_ERROR);
-            $this->assertStringNotContainsString('SYNTHETIC-DELIVERY-SECRET', $payload, $method);
-            $this->assertStringNotContainsString('SYNTHETIC-LOOKUP-SECRET', $payload, $method);
+            $this->assertStringContainsString('SYNTHETIC-DELIVERY-SECRET', $payload, $method);
+            $this->assertStringContainsString('SYNTHETIC-LOOKUP-SECRET', $payload, $method);
         }
         $page = Livewire::test(ViewOrder::class, ['record' => $order->id])->call('refreshFormData', ['info', 'search_pwd'])->assertOk();
         $payload = json_encode([$page->effects, $page->snapshot], JSON_THROW_ON_ERROR);
-        $this->assertStringNotContainsString('SYNTHETIC-DELIVERY-SECRET', $payload);
-        $this->assertStringNotContainsString('SYNTHETIC-LOOKUP-SECRET', $payload);
+        $this->assertStringContainsString('SYNTHETIC-DELIVERY-SECRET', $payload);
+        $this->assertStringContainsString('SYNTHETIC-LOOKUP-SECRET', $payload);
     }
 
     public function test_manual_fulfilment_cannot_mark_unpaid_or_automatic_orders_as_paid(): void
@@ -419,20 +419,22 @@ class FilamentAdminTest extends TestCase
             $this->assertSame($notify ? 1 : 0, DB::table('jobs')->count());
             $page->assertActionHidden('complete');
             $this->assertSame(4, (int) $page->instance()->getRecord()->status);
-            $this->assertArrayNotHasKey('info', $page->instance()->getRecord()->getAttributes());
+            $this->assertSame($order->fresh()->info, $page->instance()->getRecord()->info);
+            $page->assertSee('UI delivery result');
         }
         $another = $this->order(['status' => 3, 'type' => 2, 'trade_no' => '', 'actual_price' => 0]);
         Livewire::test(ViewOrder::class, ['record' => $another->id])->mountAction('complete')
             ->assertActionDataSet(['notify_customer' => false]);
     }
 
-    public function test_processing_action_updates_displayed_state_without_hydrating_secrets(): void
+    public function test_processing_action_updates_displayed_state_and_keeps_order_contents(): void
     {
         $order = $this->order(['status' => 2, 'type' => 2, 'trade_no' => 'verified-trade', 'info' => 'PRIVATE-DETAIL']);
         $page = Livewire::test(ViewOrder::class, ['record' => $order->id])->callAction('processing')
             ->assertHasNoActionErrors()->assertActionHidden('processing');
         $this->assertSame(3, (int) $page->instance()->getRecord()->status);
-        $this->assertArrayNotHasKey('info', $page->instance()->getRecord()->getAttributes());
+        $this->assertSame('PRIVATE-DETAIL', $page->instance()->getRecord()->info);
+        $page->assertSee('PRIVATE-DETAIL');
     }
 
     public function test_opted_in_completion_queues_one_status_mail_only_after_commit_and_not_on_retry(): void

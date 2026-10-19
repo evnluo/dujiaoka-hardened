@@ -10,6 +10,35 @@ use Illuminate\Validation\ValidationException;
 
 final class OrderOperations
 {
+    public static function setArchived(array $ids, bool $archive): BulkResult
+    {
+        AdminAccess::authorize();
+        $ids = BulkResult::ids($ids);
+        $result = new BulkResult();
+        foreach ($ids as $id) {
+            try {
+                $outcome = DB::transaction(function () use ($id, $archive): string {
+                    $order = Order::withTrashed()->lockForUpdate()->find($id);
+                    if (! $order || $order->trashed()) {
+                        return '旧版已删除记录或记录不存在，未更改。';
+                    }
+                    if (($order->archived_at !== null) === $archive) {
+                        return 'unchanged';
+                    }
+                    // Organizational metadata only: no model events or business timestamps.
+                    DB::table('orders')->where('id', $id)->update(['archived_at' => $archive ? now() : null]);
+                    return 'changed';
+                });
+                if ($outcome === 'changed') { $result->changed++; }
+                elseif ($outcome === 'unchanged') { $result->unchanged++; }
+                else { $result->skip($outcome); }
+            } catch (QueryException) {
+                $result->skip('数据库写入失败，此条未更改；请刷新后重试。');
+            }
+        }
+        return $result;
+    }
+
     public static function fulfil(int $id, int $target, ?string $message = null, bool $notifyCustomer = false): Order
     {
         AdminAccess::authorize();

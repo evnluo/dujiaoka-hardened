@@ -17,8 +17,8 @@ class ListOrders extends ListRecords
     {
         return [
             'all' => Tab::make('全部'),
-            'manual' => Tab::make('待人工处理')->badge(fn () => Order::query()->where('type', 2)->whereIn('status', [2, 3])->count())->modifyQueryUsing(fn (Builder $query) => $query->where('type', 2)->whereIn('status', [2, 3])),
-            'attention' => Tab::make('失败 / 异常')->badge(fn () => Order::query()->whereIn('status', [5, 6])->count())->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', [5, 6])),
+            'manual' => Tab::make('待人工处理')->badge(fn () => Order::query()->whereNull('archived_at')->where('type', 2)->whereIn('status', [2, 3])->count())->modifyQueryUsing(fn (Builder $query) => $query->where('type', 2)->whereIn('status', [2, 3])),
+            'attention' => Tab::make('失败 / 异常')->badge(fn () => Order::query()->whereNull('archived_at')->whereIn('status', [5, 6])->count())->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', [5, 6])),
             'unpaid' => Tab::make('待支付')->modifyQueryUsing(fn (Builder $query) => $query->where('status', 1)),
             'completed' => Tab::make('已完成')->modifyQueryUsing(fn (Builder $query) => $query->where('status', 4)),
         ];

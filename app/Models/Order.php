@@ -12,6 +12,8 @@ class Order extends BaseModel
 
     protected $table = 'orders';
 
+    protected $casts = ['archived_at' => 'datetime'];
+
     /**
      * 待支付
      */

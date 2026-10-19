@@ -38,6 +38,7 @@ Schema::create('orders', function ($t): void {
     foreach (['goods_price', 'coupon_discount_price', 'wholesale_discount_price', 'total_price', 'actual_price'] as $field) $t->decimal($field, 10, 2)->default(0);
     $t->string('search_pwd')->default(''); $t->string('email'); $t->text('info')->nullable(); $t->integer('pay_id')->nullable();
     $t->string('buy_ip'); $t->string('trade_no')->default(''); $t->integer('status')->default(1); $t->integer('coupon_ret_back')->default(0);
+    $t->timestamp('archived_at')->nullable()->index();
     $t->timestamps(); $t->softDeletes();
 });
 Schema::create('emailtpls', function ($t): void {

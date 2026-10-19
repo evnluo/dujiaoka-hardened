@@ -45,6 +45,7 @@
 /* Keep literal card whitespace inside the value, never on Blade's indented wrapper. */
 .shop-card-content { min-width: 12rem; max-width: 28rem; overflow-wrap: anywhere; }
 .shop-card-preview { white-space: pre-wrap; }
+.shop-order-content { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 /* TipTap persists both dimensions; narrow editors must clamp proportionally too. */
 .fi-fo-rich-editor .tiptap img { max-width: 100%; height: auto !important; }
 ::selection { background: #dbeafe; color: #172554; }
