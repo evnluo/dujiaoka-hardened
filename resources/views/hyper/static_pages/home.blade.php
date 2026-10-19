@@ -1,6 +1,6 @@
 @extends('hyper.layouts.default')
 @section('content')
-<link rel="stylesheet" href="/assets/hyper/css/home-catalog.css?v=2">
+<link rel="stylesheet" href="/assets/hyper/css/home-catalog.css?v=3">
 <div class="my-4 sm:my-8">
     <div class="flex flex-col items-center justify-center">
         <div class="w-full prose prose-zinc max-w-4xl prose-headings:mt-2 prose-headings:mb-0 prose-p:mt-0 prose-p:mb-2 prose-img:my-2 prose-a:text-zinc-600">
@@ -31,9 +31,9 @@
 <div id="shop-products" class="shop-products grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6 p-2 sm:p-4">
     @foreach($sortedGoods as $goods)
         @if($goods['in_stock'] > 0)
-        <a href="{{ url("/buy/{$goods['id']}") }}" data-product-group="{{ $goods['catalog_group_id'] }}" class="group relative bg-white rounded-xl shadow-sm hover:shadow-md overflow-hidden border border-zinc-200 flex flex-col gap-4">
+        <a href="{{ url("/buy/{$goods['id']}") }}" data-product-group="{{ $goods['catalog_group_id'] }}" class="shop-product-available group relative bg-white rounded-xl shadow-sm overflow-hidden flex flex-col gap-4">
         @else
-        <a href="javascript:void(0);" onclick="sell_out_tip()" data-product-group="{{ $goods['catalog_group_id'] }}" class="group relative bg-white rounded-xl shadow-sm overflow-hidden border border-zinc-200 flex flex-col gap-4">
+        <a href="javascript:void(0);" onclick="sell_out_tip()" data-product-group="{{ $goods['catalog_group_id'] }}" class="group relative bg-white rounded-xl shadow-sm overflow-hidden flex flex-col gap-4">
         @endif
             <div class="shop-product-media">
                 <img src="{{ picture_url($goods['picture']) }}"
@@ -70,7 +70,7 @@
                     <div class="text-2xl font-bold text-zinc-900">
                         {{ __('hyper.global_currency') }} {{ $goods['actual_price'] }}
                     </div>
-                    <div class="rounded-full bg-zinc-100 p-2 @if($goods['in_stock'] > 0) group-hover:bg-zinc-900 group-hover:text-white @else opacity-50 cursor-not-allowed @endif">
+                    <div class="shop-product-action rounded-full bg-zinc-100 p-2 @if($goods['in_stock'] == 0) opacity-50 cursor-not-allowed @endif">
                         @if($goods['in_stock'] > 0)
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor" class="w-4 h-4" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />

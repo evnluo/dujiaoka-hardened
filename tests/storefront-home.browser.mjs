@@ -1,6 +1,7 @@
 // Run with PHP_BINARY and PLAYWRIGHT_MODULE pointing to installed local runtimes.
 // Uses actual Blade output and public assets, an isolated in-memory catalog, and a loopback-only server.
 import assert from 'node:assert/strict';
+import { checkStorefrontInteractions } from './storefront-interactions.browser.mjs';
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -76,7 +77,7 @@ async function geometry(page) {
         stripScrollWidth: document.querySelector('.shop-categories').scrollWidth,
         buttons: [...document.querySelectorAll('[data-category]')].map(b => ({ text: b.textContent, width: b.getBoundingClientRect().width, height: b.getBoundingClientRect().height, nowrap: getComputedStyle(b).whiteSpace, shrink: getComputedStyle(b).flexShrink })),
         images: [...document.querySelectorAll('.shop-product-media img')].map(i => {
-            const r = i.getBoundingClientRect(); return { top: r.top + scrollY, width: r.width, height: r.height, opacity: getComputedStyle(i).opacity, transition: getComputedStyle(i).transitionDuration, complete: i.complete, naturalWidth: i.naturalWidth };
+            const r = i.getBoundingClientRect(); return { top: r.top + scrollY, width: r.width, height: r.height, opacity: getComputedStyle(i).opacity, transition: getComputedStyle(i).transitionProperty, complete: i.complete, naturalWidth: i.naturalWidth };
         }),
         clippedDetails: [...document.querySelectorAll('.shop-product-details, .shop-product-price')].some(el => el.scrollWidth > el.clientWidth + 1),
     }));
@@ -134,8 +135,9 @@ try {
             check(`${engine} ${width}: readable touch pills`, g.buttons.every(b => b.height >= 44 && b.nowrap === 'nowrap' && b.shrink === '0'));
             check(`${engine} ${width}: square stable image boxes`, g.images.every(i => Math.abs(i.width - i.height) < 1 && i.width > 0));
             check(`${engine} ${width}: no clipped badges/prices`, !g.clippedDetails);
-            check(`${engine} ${width}: no image reveal transition`, g.images.every(i => i.opacity === '1' && i.transition === '0s'));
+            check(`${engine} ${width}: no image reveal transition`, g.images.every(i => i.opacity === '1' && !i.transition.split(', ').includes('opacity')));
             await page.screenshot({ path: resolve(out, `${engine}-after-${width}.png`) });
+            await checkStorefrontInteractions(page, { check, label: `${engine} ${width}`, reduced: width === 430, screenshot: [320,390,1440].includes(width) ? resolve(out, `${engine}-footer-${width}.png`) : null });
             const beforeScroll = await page.evaluate(() => scrollY);
             await page.locator('[data-category="all"]').focus();
             await page.keyboard.press('End');
@@ -162,6 +164,11 @@ try {
             report.runs.push({ engine, width, geometry: g, errors });
             await context.close();
         }
+        const touchContext = await browser.newContext({ viewport: viewport(390), isMobile: true, hasTouch: true });
+        const touchPage = await touchContext.newPage();
+        await touchPage.goto(url); await ready(touchPage);
+        await checkStorefrontInteractions(touchPage, { check, label: `${engine} touch`, touch: true });
+        await touchContext.close();
         // Cold requests with deterministic 900ms server latency. No routing: browser HTTP cache stays enabled.
         delay = 900;
         const context = await browser.newContext({ viewport: viewport(390) });

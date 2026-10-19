@@ -87,6 +87,30 @@ final class StorefrontHomeTest extends TestCase
         $this->assertStringEndsWith('/buy/1', $cards[2]->getAttribute('href'));
     }
 
+    public function test_shared_footer_retires_only_known_boilerplate_and_preserves_custom_content(): void
+    {
+        $legacy = 'Need help? <a href="https://me.ohevan.com" style="text-decoration: underline;"> Contact me </a>';
+        $custom = '<p>Custom legal notice <a href="/terms">Terms</a></p><script src="https://example.test/analytics.js"></script><style>.custom{color:red}</style>';
+        app(ShopSettings::class)->setMany(['footer' => $legacy . $custom]);
+        $html = view('hyper.layouts._footer')->render();
+        foreach (['Powered by Dujiaoka', 'Modified by Evan', 'buy this template', 'Need help?', 'evannotfound.com'] as $retired) {
+            $this->assertStringNotContainsString($retired, $html);
+        }
+        $this->assertStringContainsString($custom, $html);
+        $this->assertStringContainsString('href="' . url('/order-search') . '"', $html);
+        $this->assertStringContainsString('rel="noopener noreferrer"', $html);
+        $this->assertSame($legacy . $custom, dujiaoka_config_get('footer'));
+        app(ShopSettings::class)->setMany(['footer' => '<p>Need help? Custom support and legal information.</p>']);
+        $this->assertStringContainsString('<p>Need help? Custom support and legal information.</p>', view('hyper.layouts._footer')->render());
+    }
+
+    public function test_available_cards_have_scoped_motion_hook_but_sold_out_does_not(): void
+    {
+        [, $dom] = $this->renderCatalog();
+        $this->assertCount(23, $dom->query('//*[@data-product-group and contains(@class,"shop-product-available")]'));
+        $this->assertCount(0, $dom->query('//*[@onclick="sell_out_tip()" and contains(@class,"shop-product-available")]'));
+    }
+
     public function test_empty_catalog_has_no_images_or_invalid_links(): void
     {
         [, $dom] = $this->renderCatalog([]);
