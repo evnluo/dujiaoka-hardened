@@ -350,8 +350,13 @@ class McpCatalogDomainsTest extends TestCase
         return ['filename' => 'fixture.'.$format, 'mimeType' => ['jpg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$format], 'contentBase64' => base64_encode($bytes), 'purpose' => 'rich_content'];
     }
 
+    // Model a fresh request, not the heap retained by all preceding PHPUnit cases.
+    // Keep the production-sized memory limit and the application's budget guard intact.
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+    #[\PHPUnit\Framework\Attributes\PreserveGlobalState(false)]
     public function test_media_decode_reencode_preview_retry_and_rich_editor_roundtrip(): void
     {
+        $this->assertSame(128 * 1024 * 1024, ini_parse_quantity((string) ini_get('memory_limit')));
         foreach (['png', 'jpg', 'webp'] as $format) {
             $payload = $this->media($format);
             // Trailing executable data must never survive the decode/reencode boundary.

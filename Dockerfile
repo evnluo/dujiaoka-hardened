@@ -1,6 +1,13 @@
 # Source-only modern shop runtime. Pin platform indexes; never copy host runtime data.
 FROM composer:2@sha256:9715c7f69044da2a212a5fbde29ee7da24e364d426560ae6367b060236f847d7 AS composer
 FROM php:8.5-fpm-alpine@sha256:ef8e5dac4f891df1e452a7b89b01de01d20d25788d2c3dd0f8ce137ac546c47d AS php-base
+# Official 8.5.12 image indexes are not populated yet. Rebuild from verified source.
+ENV PHP_VERSION=8.5.12 \
+    PHP_URL=https://www.php.net/distributions/php-8.5.12.tar.xz \
+    PHP_ASC_URL=https://www.php.net/distributions/php-8.5.12.tar.xz.asc \
+    PHP_SHA256=08bc2eba2a588654ade1357174aa646b761556c862dda0678345ee29ed481209
+COPY docker/build-php.sh /usr/local/bin/build-php
+RUN sh /usr/local/bin/build-php && rm /usr/local/bin/build-php
 RUN apk add --no-cache nginx supervisor curl git unzip icu-libs libzip libpng libjpeg-turbo libwebp freetype oniguruma \
     && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS icu-dev libzip-dev libpng-dev libjpeg-turbo-dev libwebp-dev freetype-dev oniguruma-dev linux-headers \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
@@ -9,9 +16,18 @@ RUN apk add --no-cache nginx supervisor curl git unzip icu-libs libzip libpng li
 COPY --from=composer /usr/bin/composer /usr/local/bin/composer
 RUN addgroup -g 1000 application && adduser -D -u 1000 -G application application
 WORKDIR /dujiaoka
+# phpredis 6.3.0 official release commit; avoid the unavailable PECL download endpoint.
 RUN apk add --no-cache --virtual .redis-build-deps $PHPIZE_DEPS \
-    && pecl install redis-6.3.0 \
+    && curl -fL --retry 4 --retry-all-errors --connect-timeout 15 --max-time 120 \
+        https://codeload.github.com/phpredis/phpredis/tar.gz/df4fab2de7fc327c54c94a13af2b9542e4fbd720 -o /tmp/redis.tar.gz \
+    && echo '79ecabd899e50a6efa56d9fc28a987a25d78deecc32fdd0fa9840b1b3d83740e  /tmp/redis.tar.gz' | sha256sum -c - \
+    && mkdir -p /usr/src/phpredis \
+    && tar -xzf /tmp/redis.tar.gz -C /usr/src/phpredis --strip-components=1 \
+    && cd /usr/src/phpredis && phpize && ./configure --enable-redis \
+    && make -j2 && make install \
+    && cd /dujiaoka && rm -rf /usr/src/phpredis /tmp/redis.tar.gz \
     && docker-php-ext-enable redis \
+    && php -r 'if (phpversion("redis") !== "6.3.0") { exit(1); }' \
     && apk del .redis-build-deps
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
