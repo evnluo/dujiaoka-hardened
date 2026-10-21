@@ -1,6 +1,13 @@
 # Source-only modern shop runtime. Pin platform indexes; never copy host runtime data.
 FROM composer:2@sha256:9715c7f69044da2a212a5fbde29ee7da24e364d426560ae6367b060236f847d7 AS composer
 FROM php:8.5-fpm-alpine@sha256:ef8e5dac4f891df1e452a7b89b01de01d20d25788d2c3dd0f8ce137ac546c47d AS php-base
+# Official 8.5.12 image indexes are not populated yet. Rebuild from verified source.
+ENV PHP_VERSION=8.5.12 \
+    PHP_URL=https://www.php.net/distributions/php-8.5.12.tar.xz \
+    PHP_ASC_URL=https://www.php.net/distributions/php-8.5.12.tar.xz.asc \
+    PHP_SHA256=08bc2eba2a588654ade1357174aa646b761556c862dda0678345ee29ed481209
+COPY docker/build-php.sh /usr/local/bin/build-php
+RUN sh /usr/local/bin/build-php && rm /usr/local/bin/build-php
 RUN apk add --no-cache nginx supervisor curl git unzip icu-libs libzip libpng libjpeg-turbo libwebp freetype oniguruma \
     && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS icu-dev libzip-dev libpng-dev libjpeg-turbo-dev libwebp-dev freetype-dev oniguruma-dev linux-headers \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
